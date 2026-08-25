@@ -73,6 +73,10 @@ Perilaku baru:
      dibaca langsung dari Drive (tidak diduplikasi).
 3. Job selesai → hanya `clips/` + `subtitles/` + `history.db` yang disalin ke
    Drive (`projects/<judul>/`), file sumber & temp dibersihkan dari disk lokal.
+   **Semua path absolut yang tersimpan di DB** (`job["clips"][*]["path"]`,
+   `metadata.source_video`, `metadata.subtitle_path`) **ditulis ulang ke path
+   Drive** sebelum `save_history` — agar preview video (`GET /video`) dan
+   resume/rerender tetap berfungsi di sesi Colab berikutnya.
 4. Session Colab mati → disk lokal hilang, hasil + riwayat aman di Drive.
 
 ### Perubahan kode Workstream A
@@ -82,6 +86,7 @@ Perilaku baru:
 | `backend/colab_api.py` | Set `AUTO_CLIPPER_LOCAL_WORKDIR=/content/projects` (kerja) + `AUTO_CLIPPER_WORKSPACE` tetap Drive (DB). Assert T4, cek tunnel sehat sebelum start, auto-cleanup disk saat start. |
 | `backend/db.py` `get_app_data_dir()` | Prioritas: `AUTO_CLIPPER_LOCAL_WORKDIR` → `AUTO_CLIPPER_WORKSPACE` → default OS. Catatan: `history.db` harus tetap di Drive — DB path di-resolve dari `AUTO_CLIPPER_WORKSPACE` secara eksplisit, bukan dari `get_app_data_dir()`. |
 | `backend/jobs.py` `get_project_workspace()` | Di cloud mode: buat workspace proyek di local workdir; saat job selesai (`_finalize_job`), salin `clips/` + `subtitles/` ke folder Drive yang sama, lalu hapus file source/temp lokal. |
+| `backend/jobs.py` `_finalize_job()` | **Penulisan ulang path:** sebelum `save_history`, di cloud mode semua path absolut di `job["clips"][*]["path"]` dan `metadata.source_video`/`metadata.subtitle_path` yang menunjuk local workdir ditulis ulang ke path Drive yang sesuai. Tanpa ini, preview `GET /video` dan fitur resume/rerender rusak setelah session Colab restart (path lokal mati). |
 | `backend/main.py` `POST /upload` | Cloud mode → simpan ke `/content/uploads` (disk lokal). Desktop: perilaku lama. |
 | `backend/main.py` CORS | Daftar origin pindah ke env var `AUTO_CLIPPER_ALLOWED_ORIGINS` (comma-separated, dibaca saat startup). Regex lama tetap jadi default bila env kosong. Tambah `clip.fransiskus.my.id` & domain Vercel ke default. |
 | `web/src/api.ts` | Default `API_URL` hardcode diganti `https://be-clipper.fransiskus.my.id` (fallback bila `VITE_API_URL` tidak diset). |
@@ -107,8 +112,9 @@ GET  /upload/status/{id}             →    daftar chunk sudah diterima (untuk
 ```
 
 - Chunk size 20MB (aman di bawah batas body Cloudflare ~100MB).
-- `upload_id` UUID4; chunk di-write sebagai file terpisah `.parts/<id>/<n>`
-  lalu digabung dengan `os.replace` per part ke file final (streaming append).
+- `upload_id` UUID4; tiap chunk ditulis sebagai file terpisah
+  `.parts/<id>/<n>`; saat `complete`, semua part digabung dengan streaming
+  copy berurutan ke file final, lalu direktori `.parts/<id>/` dihapus.
 - Upload tidak diselesaikan >24 jam dibersihkan otomatis saat sesi Colab start.
 - Nama file disanitasi (hanya `[A-Za-z0-9._-]`); ekstensi diizinkan:
   `.mp4 .mkv .mov .webm .avi .m4v .ts`.
