@@ -184,7 +184,11 @@ def api_get_gdrive_browser(dir_path: str = Query("/content/drive/MyDrive")):
     # Keamanan: pastikan path selalu berada di dalam /content/drive/MyDrive
     base_drive = os.path.abspath(_GDRIVE_BASE)
     target_path = os.path.abspath(dir_path)
-    if not target_path.startswith(base_drive):
+    try:
+        inside_drive = os.path.commonpath((base_drive, target_path)) == base_drive
+    except ValueError:
+        inside_drive = False
+    if not inside_drive:
         target_path = base_drive
         
     if not os.path.exists(target_path):
@@ -221,7 +225,7 @@ def api_get_gdrive_browser(dir_path: str = Query("/content/drive/MyDrive")):
 
 
 @app.get("/gdrive-search")
-def api_gdrive_search(q: str = Query(""), max_results: int = Query(100, ge=1, le=1000)):
+def api_gdrive_search(q: str = Query(""), max_results: int = Query(100, ge=1, le=100)):
     if not os.environ.get("AUTO_CLIPPER_CLOUD_MODE"):
         return {"status": "error", "message": "Only available in Cloud Mode"}
     if not q or not q.strip():

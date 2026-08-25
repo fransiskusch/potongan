@@ -28,6 +28,26 @@ def get_temp_dir():
     return os.path.join(get_app_data_dir(), "temp_downloads")
 
 
+def _is_drive_source(path: str) -> bool:
+    try:
+        if path.replace("\\", "/").startswith("/content/drive/"):
+            return True
+        root = os.path.realpath("/content/drive")
+        return os.path.commonpath((os.path.realpath(path), root)) == root
+    except ValueError:
+        return False
+
+
+def _resolve_local_source(local_src: str, destination: str) -> str:
+    from backend.cloud_sync import is_cloud_mode
+    if is_cloud_mode() and _is_drive_source(local_src):
+        return local_src
+    if os.path.abspath(local_src) != os.path.abspath(destination):
+        import shutil
+        shutil.copy2(local_src, destination)
+    return destination
+
+
 def sanitize_title(title: str) -> str:
     if not title:
         return ""
@@ -107,7 +127,7 @@ def create_job(url: str, provider: str, api_key: str, aspect_ratio: str = "9:16"
         "custom_model_name": custom_model_name,
         "whisper_model": whisper_model or "small",
         "model": model,
-        "mode": "ai",
+        "mode": "manual" if provider in ("manual_ai", "manual") else "ai",
         "aspect_ratio": aspect_ratio,
         "canvas_config": canvas_config,
         "subtitle_config": subtitle_config,
@@ -272,11 +292,9 @@ def _run_job(job_id: str):
             job["progress"] = "Mempersiapkan video lokal..."
             log_app(f"[{job_id}] " + str("Mempersiapkan video lokal..."))
             # output_path is copied into project workspace source folder
-            local_src = job["url"].split("local:")[1]
+            local_src = job["url"][len("local:"):]
             output_path = os.path.join(ws["source_dir"], "source_video.mp4")
-            if os.path.abspath(local_src) != os.path.abspath(output_path):
-                import shutil
-                shutil.copy2(local_src, output_path)
+            output_path = _resolve_local_source(local_src, output_path)
         else:
             job["progress"] = "Mengunduh video..."
             log_app(f"[{job_id}] " + str("Mengunduh video..."))
@@ -506,11 +524,9 @@ def _run_manual_job(job_id: str):
         if job["url"].startswith("local:"):
             job["progress"] = "Mempersiapkan video lokal..."
             log_app(f"[{job_id}] " + str("Mempersiapkan video lokal..."))
-            local_src = job["url"].split("local:")[1]
+            local_src = job["url"][len("local:"):]
             source_path = os.path.join(ws["source_dir"], "source_video.mp4")
-            if os.path.abspath(local_src) != os.path.abspath(source_path):
-                import shutil
-                shutil.copy2(local_src, source_path)
+            source_path = _resolve_local_source(local_src, source_path)
         else:
             job["progress"] = "Mengunduh video..."
             log_app(f"[{job_id}] " + str("Mengunduh video..."))
@@ -1108,7 +1124,7 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
     if metadata.get("highlights") and job.get("mode") == "ai":
         metadata["ai_job"] = True
         
-    for key in ["provider", "api_key", "custom_base_url", "custom_model_name", "model", "mode", "aspect_ratio", "caption_style", "burn_subs", "output_dir", "enable_broll", "pexels_api_key", "max_clips", "is_gaming_video", "whisper_model", "canvas_config", "subtitle_config"]:
+    for key in ["provider", "custom_base_url", "custom_model_name", "model", "mode", "aspect_ratio", "caption_style", "burn_subs", "output_dir", "enable_broll", "max_clips", "is_gaming_video", "whisper_model", "canvas_config", "subtitle_config"]:
         if key in job:
             metadata[key] = job[key]
 
@@ -1182,7 +1198,7 @@ def resume_manual_job(history_id: str, json_payload: str) -> str:
         "url": hist["url"],
         "provider": "manual_ai",
         "api_key": "",
-        "mode": hist_meta.get("mode", "ai"),
+        "mode": "manual",
         "aspect_ratio": hist_meta.get("aspect_ratio", "9:16"),
         "canvas_config": hist_meta.get("canvas_config"),
         "subtitle_config": hist_meta.get("subtitle_config"),
@@ -1262,7 +1278,7 @@ def create_resume_job(history_id: str, fallback_api_key: str = None, fallback_pr
         "id": job_id,
         "url": hist["url"],
         "provider": provider,
-        "api_key": hist_meta.get("api_key") or fallback_api_key or "",
+        "api_key": fallback_api_key or "",
         "custom_base_url": hist_meta.get("custom_base_url") or fallback_custom_base_url or "",
         "custom_model_name": hist_meta.get("custom_model_name") or fallback_custom_model_name or "",
         "whisper_model": hist_meta.get("whisper_model") or fallback_whisper_model or "small",

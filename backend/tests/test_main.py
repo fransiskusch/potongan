@@ -74,6 +74,27 @@ def test_is_valid_source_url_rejects_others():
     assert not is_valid_source_url("not a url")
 
 
+def test_custom_provider_url_rejects_private_hosts():
+    from backend.ai_utils import validate_custom_base_url
+    for url in (
+        "http://localhost:11434/v1",
+        "http://127.0.0.1/v1",
+        "http://169.254.169.254/latest/meta-data",
+        "http://10.0.0.5/v1",
+        "ftp://public.example/v1",
+    ):
+        try:
+            validate_custom_base_url(url)
+            assert False, url
+        except ValueError:
+            pass
+
+
+def test_custom_provider_url_accepts_public_https():
+    from backend.ai_utils import validate_custom_base_url
+    assert validate_custom_base_url("https://router.example/v1/models/") == "https://router.example/v1/models"
+
+
 def test_create_job_rejects_invalid_url():
     r = client.post("/jobs", json={"url": "https://example.com/x"})
     assert r.status_code == 400

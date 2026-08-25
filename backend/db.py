@@ -79,6 +79,12 @@ def init_db():
     conn.commit()
     conn.close()
 
+
+def _safe_metadata(metadata):
+    if not isinstance(metadata, dict):
+        return {}
+    return {key: value for key, value in metadata.items() if key not in {"api_key", "pexels_api_key"}}
+
 def save_history(job_id: str, url: str, status: str, clips: list, metadata: dict = None):
     conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
@@ -118,7 +124,7 @@ def get_all_history():
             "status": row["status"],
             "created_at": row["created_at"],
             "result_clips": json.loads(row["result_clips"]) if row["result_clips"] else [],
-            "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
+            "metadata": _safe_metadata(json.loads(row["metadata"]) if row["metadata"] else {})
         })
     return history
 
@@ -137,7 +143,7 @@ def get_history(job_id: str) -> dict:
         "status": row["status"],
         "created_at": row["created_at"],
         "result_clips": json.loads(row["result_clips"]) if row["result_clips"] else [],
-        "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
+        "metadata": _safe_metadata(json.loads(row["metadata"]) if row["metadata"] else {})
     }
 
 def safe_remove_file(file_path: str, retries: int = 4, delay: float = 0.15) -> bool:

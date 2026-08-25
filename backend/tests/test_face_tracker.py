@@ -42,6 +42,13 @@ def test_dominant_face_lock_holds_when_missing():
     assert x == 0.5
 
 
+def test_dominant_face_lock_rejects_far_alternate_face():
+    from backend.face_tracker import _DominantFaceLock
+    lock = _DominantFaceLock()
+    lock.update(0.0, [(0.2, 0.5, 0.1, 0.1)])
+    assert lock.update(1.0, [(0.8, 0.5, 0.5, 0.5)]) == 0.2
+
+
 def test_crop_utils_sample_wrapper_uses_face_tracker(monkeypatch):
     from backend import crop_utils
 
@@ -95,8 +102,9 @@ def test_sample_mediapipe_failure_releases_capture_and_detector(monkeypatch):
         tracker, "sample_face_trajectory_haar", return_value=[(0.0, 0.5)]
     ) as haar:
         result = tracker.sample_face_trajectory("clip.mp4", 0.0, 1.0)
-    assert result == [(0.0, 0.5)]
-    haar.assert_called_once()
+    assert len(result) == 5
+    assert all(point[1] == 0.5 for point in result)
+    haar.assert_not_called()
     cap.release.assert_called_once()
     detector.close.assert_called_once()
 
@@ -125,6 +133,6 @@ def test_layout_mediapipe_failure_releases_capture_and_detector(monkeypatch):
     ) as haar:
         result = tracker.detect_video_layout("clip.mp4", samples=2)
     assert result == expected
-    haar.assert_called_once()
+    haar.assert_not_called()
     cap.release.assert_called_once()
     detector.close.assert_called_once()

@@ -1,11 +1,14 @@
 """Optional MediaPipe face tracker with dominant-face lock and Haar fallback."""
 import math
+import os
 
 from backend.crop_utils import to_seconds
 from backend.logger import log_error
 
 
 def _mediapipe_available() -> bool:
+    if not os.environ.get("AUTO_CLIPPER_CLOUD_MODE"):
+        return False
     try:
         import mediapipe  # noqa: F401
         return True
@@ -52,6 +55,7 @@ class _OneEuroFilter:
 class _DominantFaceLock:
     HOLD_SECONDS = 5.0
     RESCAN_SECONDS = 15.0
+    MAX_CENTER_DISTANCE = 0.25
 
     def __init__(self):
         self.target = None
@@ -70,7 +74,13 @@ class _DominantFaceLock:
             cx, cy, _, _ = max(faces, key=lambda f: f[2] * f[3])
             self.target = self.anchor = (cx, cy)
         else:
-            cx, cy, _, _ = min(faces, key=lambda f: abs(f[0] - self.target[0]) + abs(f[1] - self.target[1]))
+            candidate = min(faces, key=lambda f: abs(f[0] - self.target[0]) + abs(f[1] - self.target[1]))
+            distance = abs(candidate[0] - self.target[0]) + abs(candidate[1] - self.target[1])
+            if distance > self.MAX_CENTER_DISTANCE:
+                if self.missing_since is None:
+                    self.missing_since = t
+                return self.target[0]
+            cx, cy, _, _ = candidate
             self.target = (cx, cy)
         self.last_seen, self.missing_since = t, None
         return self.target[0]
@@ -106,9 +116,12 @@ def sample_face_trajectory(video_path: str, start_time: float, end_time: float, 
             ret, frame = cap.read()
             faces = []
             if ret:
-                for detection in detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).detections or []:
-                    box = detection.location_data.relative_bounding_box
-                    faces.append((box.xmin + box.width / 2, box.ymin + box.height / 2, box.width, box.height))
+                try:
+                    for detection in detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).detections or []:
+                        box = detection.location_data.relative_bounding_box
+                        faces.append((box.xmin + box.width / 2, box.ymin + box.height / 2, box.width, box.height))
+                except Exception as exc:
+                    log_error("face_tracker.frame", f"MediaPipe frame skipped: {exc}")
             x = filt(rel_t, lock.update(rel_t, faces) or 0.5)
             trajectory.append((rel_t, max(lo, min(hi, x)) if lo <= hi else x))
         return trajectory
@@ -152,11 +165,14 @@ def detect_video_layout(video_path, start_time=None, end_time=None, samples: int
             ret, frame = cap.read()
             if not ret:
                 continue
-            for detection in detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).detections or []:
-                box = detection.location_data.relative_bounding_box
-                cx, cy, area = box.xmin + box.width / 2, box.ymin + box.height / 2, box.width * box.height
-                if area < 0.25 and (abs(cx - 0.5) > 0.1 or abs(cy - 0.5) > 0.1):
-                    found.append((cx, cy, area, box.xmin, box.ymin, box.width, box.height))
+            try:
+                for detection in detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).detections or []:
+                    box = detection.location_data.relative_bounding_box
+                    cx, cy, area = box.xmin + box.width / 2, box.ymin + box.height / 2, box.width * box.height
+                    if area < 0.25 and (abs(cx - 0.5) > 0.1 or abs(cy - 0.5) > 0.1):
+                        found.append((cx, cy, area, box.xmin, box.ymin, box.width, box.height))
+            except Exception as exc:
+                log_error("face_tracker.layout_frame", f"MediaPipe frame skipped: {exc}")
         clusters = []
         for face in found:
             for cluster in clusters:

@@ -139,6 +139,50 @@ def test_create_job_requires_title():
         create_manual_job("https://youtu.be/x", [{"start": 0, "end": 5}], title="   ")
 
 
+def test_manual_resume_defaults_to_manual_mode(monkeypatch, tmp_path):
+    from backend.jobs import resume_manual_job
+    src = tmp_path / "source.mp4"
+    sub = tmp_path / "subs.srt"
+    src.write_bytes(b"x")
+    sub.write_text("", encoding="utf-8")
+    history = {"url": f"local:{src}", "metadata": {
+        "source_video": str(src), "subtitle_path": str(sub), "title": "Manual",
+        "aspect_ratio": "9:16", "burn_subs": False,
+    }}
+    monkeypatch.setattr("backend.db.get_history", lambda _id: history)
+    monkeypatch.setattr(jobs, "_run_manual_resume_job", lambda *_args: None)
+    job_id = resume_manual_job("manual-history", '[{"start_time":"00:00:00","end_time":"00:00:01"}]')
+    try:
+        assert jobs.active_jobs[job_id]["mode"] == "manual"
+    finally:
+        jobs.active_jobs.pop(job_id, None)
+
+
+def test_finalize_job_does_not_persist_api_keys(monkeypatch):
+    saved = []
+    monkeypatch.setattr("backend.db.save_history", lambda *args: saved.append(args))
+    job_id = "secret-job"
+    jobs.active_jobs[job_id] = {
+        "id": job_id, "url": "https://youtu.be/x", "title": "Secret",
+        "status": "DONE", "clips": [], "mode": "ai", "api_key": "TOP-SECRET",
+        "pexels_api_key": "PEXELS-SECRET", "custom_base_url": "https://public.example/v1",
+    }
+    try:
+        jobs._finalize_job(job_id, "DONE", {})
+        metadata = saved[0][4]
+        assert "api_key" not in metadata
+        assert "pexels_api_key" not in metadata
+    finally:
+        jobs.active_jobs.pop(job_id, None)
+
+
+def test_cloud_drive_source_keeps_original_path(monkeypatch, tmp_path):
+    source = "/content/drive/MyDrive/video.mp4"
+    destination = str(tmp_path / "source_video.mp4")
+    monkeypatch.setenv("AUTO_CLIPPER_CLOUD_MODE", "1")
+    assert jobs._resolve_local_source(source, destination) == source
+
+
 def test_cancel_job_updates_status_and_calls_db(monkeypatch):
     """cancel_job should immediately mark status as CANCELLED and call save_history."""
     job_id = "test-cancel-db"
