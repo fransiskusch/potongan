@@ -27,6 +27,18 @@ const STORAGE_STEP_KEY = "ac_wizard_current_step";
 const STORAGE_JOB_MODE_KEY = "ac_active_job_mode";
 type JobMode = "manual" | "ai";
 
+function getJobMode(job: unknown, fallback: JobMode): JobMode {
+  if (!job || typeof job !== "object") return fallback;
+  const metadata = "metadata" in job && job.metadata && typeof job.metadata === "object" ? job.metadata : null;
+  const mode = metadata && "mode" in metadata ? metadata.mode : "mode" in job ? job.mode : undefined;
+  if (mode === "manual") return "manual";
+  if (mode === "ai" || mode === "rerender") return "ai";
+  const provider = metadata && "provider" in metadata ? metadata.provider : "provider" in job ? job.provider : undefined;
+  if (provider === "manual_ai") return "manual";
+  if (typeof provider === "string" && provider) return "ai";
+  return fallback;
+}
+
 function getSteps(isManualMode: boolean) {
   return isManualMode
     ? [
@@ -60,7 +72,7 @@ function MainWizard() {
       const saved = localStorage.getItem(STORAGE_STEP_KEY);
       if (saved) {
         const num = parseInt(saved, 10);
-        if (num >= 1 && num <= 4) return num as WizardStep;
+        if (num >= 1 && num <= 4 && (isManualMode || num !== 4)) return num as WizardStep;
       }
     }
     return 1;
@@ -84,8 +96,25 @@ function MainWizard() {
     resetJob,
     stopPolling,
     startPolling,
+    fetchJobNow,
   } = useJobPolling();
   const wizardIsManual = jobId ? (jobMode ? jobMode === "manual" : isManualMode) : isManualMode;
+
+  useEffect(() => {
+    if (jobId && activeJob) {
+      const mode = getJobMode(activeJob, jobMode ?? (isManualMode ? "manual" : "ai"));
+      setJobMode(mode);
+      localStorage.setItem(STORAGE_JOB_MODE_KEY, mode);
+    }
+  }, [activeJob, jobId, jobMode, isManualMode]);
+
+  useEffect(() => {
+    if (!jobId && currentStep !== 1) {
+      setCurrentStep(1);
+    } else if (jobId && !wizardIsManual && currentStep === 4) {
+      setCurrentStep(3);
+    }
+  }, [jobId, wizardIsManual, currentStep]);
 
   // Save current step to localStorage
   useEffect(() => {
@@ -156,6 +185,15 @@ function MainWizard() {
     } catch (err) {
       // Error handled in hook
     }
+  };
+
+  const handleHistoryResume = async (id: string) => {
+    const fetchedJob = await fetchJobNow(id);
+    const mode = getJobMode(fetchedJob, isManualMode ? "manual" : "ai");
+    setJobMode(mode);
+    localStorage.setItem(STORAGE_JOB_MODE_KEY, mode);
+    setCurrentView("wizard");
+    startPolling(id);
   };
 
   const handleResetToNewJob = () => {
@@ -289,10 +327,7 @@ function MainWizard() {
         {currentView === "history" ? (
           <main className="bg-neutral-900/80 border border-neutral-800/90 rounded-3xl p-5 sm:p-8 shadow-2xl backdrop-blur-md relative overflow-hidden">
             <HistoryList
-              onResume={(id) => {
-                setCurrentView("wizard");
-                startPolling(id);
-              }}
+              onResume={handleHistoryResume}
             />
           </main>
         ) : (

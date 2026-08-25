@@ -45,6 +45,8 @@ export interface Clip {
 }
 
 export interface JobMetadata {
+  provider?: string;
+  mode?: "ai" | "manual" | "rerender" | string;
   title?: string;
   manual_prompt?: string;
   subtitle_path?: string;
