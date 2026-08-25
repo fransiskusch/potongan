@@ -100,8 +100,13 @@ def test_safe_remove_file_and_dir(tmp_path):
 
 
 def test_delete_history_cleans_project_workspace(monkeypatch, tmp_path):
+    monkeypatch.delenv("AUTO_CLIPPER_LOCAL_WORKDIR", raising=False)
     _use_tmp_db(monkeypatch, tmp_path)
     monkeypatch.setattr(db, "get_app_data_dir", lambda: str(tmp_path))
+    # jobs.get_project_workspace imports get_app_data_dir at load time; patch it too
+    import backend.jobs as jobs
+
+    monkeypatch.setattr(jobs, "get_app_data_dir", lambda: str(tmp_path))
 
     ws_dir = tmp_path / "projects" / "Project_job-clean"
     ws_clips = ws_dir / "clips"
@@ -119,6 +124,7 @@ def test_delete_history_cleans_project_workspace(monkeypatch, tmp_path):
 
 
 def test_get_app_data_dir_custom_workspace(monkeypatch, tmp_path):
+    monkeypatch.delenv("AUTO_CLIPPER_LOCAL_WORKDIR", raising=False)
     custom_ws = str(tmp_path / "custom_workspace")
     monkeypatch.setenv("AUTO_CLIPPER_WORKSPACE", f"  {custom_ws}  ")
     res = db.get_app_data_dir()
@@ -127,6 +133,7 @@ def test_get_app_data_dir_custom_workspace(monkeypatch, tmp_path):
 
 
 def test_get_app_data_dir_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("AUTO_CLIPPER_LOCAL_WORKDIR", raising=False)
     monkeypatch.delenv("AUTO_CLIPPER_WORKSPACE", raising=False)
     monkeypatch.setenv("APPDATA", str(tmp_path))
     res = db.get_app_data_dir()
@@ -136,6 +143,29 @@ def test_get_app_data_dir_default(monkeypatch, tmp_path):
     monkeypatch.setenv("AUTO_CLIPPER_WORKSPACE", "   ")
     res2 = db.get_app_data_dir()
     assert "AutoClipper" in res2
+
+
+def test_get_app_data_dir_prefers_local_workdir(monkeypatch, tmp_path):
+    import backend.db as db
+
+    local_ws = tmp_path / "local_ws"
+    drive_ws = tmp_path / "drive_ws"
+    monkeypatch.setenv("AUTO_CLIPPER_LOCAL_WORKDIR", str(local_ws))
+    monkeypatch.setenv("AUTO_CLIPPER_WORKSPACE", str(drive_ws))
+    res = db.get_app_data_dir()
+    assert res == os.path.abspath(str(local_ws))
+
+
+def test_get_db_path_ignores_local_workdir(monkeypatch, tmp_path):
+    # history.db HARUS tetap di workspace persisten (Drive), bukan workdir lokal.
+    import backend.db as db
+
+    local_ws = tmp_path / "local_ws"
+    drive_ws = tmp_path / "drive_ws"
+    monkeypatch.setenv("AUTO_CLIPPER_LOCAL_WORKDIR", str(local_ws))
+    monkeypatch.setenv("AUTO_CLIPPER_WORKSPACE", str(drive_ws))
+    res = db.get_db_path()
+    assert res == os.path.join(os.path.abspath(str(drive_ws)), "history.db")
 
 
 
