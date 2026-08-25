@@ -15,7 +15,7 @@ Verification:
 
 Commit:
 
-- Pending
+- `17a8da4 feat: wire AI settings + save-source toggle into StepInput payload`
 
 Concerns:
 
