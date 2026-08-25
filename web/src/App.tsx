@@ -72,7 +72,8 @@ function MainWizard() {
       const saved = localStorage.getItem(STORAGE_STEP_KEY);
       if (saved) {
         const num = parseInt(saved, 10);
-        if (num >= 1 && num <= 4 && (isManualMode || num !== 4)) return num as WizardStep;
+        const hasActiveJob = Boolean(localStorage.getItem("ac_active_job_id"));
+        if (num >= 1 && num <= 4 && hasActiveJob && (isManualMode || num !== 4)) return num as WizardStep;
       }
     }
     return 1;

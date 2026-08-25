@@ -25,6 +25,7 @@ Concerns:
 Review follow-up:
 
 - Clamped persisted/current step 4 to step 3 for AI mode and reset stale steps when no active job remains.
+- Clamped persisted steps to step 1 when no active job ID exists, preventing invalid step 4 initialization.
 - History resume fetches job metadata, derives mode from `mode`/`provider` with safe provider fallback, persists mode, then starts polling and routes to wizard.
 - Added `provider` and `mode` fields to frontend job metadata typing.
 - No frontend test runner exists in `web/package.json`; verification uses production build.
