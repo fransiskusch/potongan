@@ -12,6 +12,7 @@ export const AISettingsModal: React.FC<{ open: boolean; onClose: () => void }> =
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const providerRef = useRef<HTMLSelectElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setFeedback(null);
@@ -24,6 +25,20 @@ export const AISettingsModal: React.FC<{ open: boolean; onClose: () => void }> =
     providerRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) || []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => {
@@ -73,7 +88,7 @@ export const AISettingsModal: React.FC<{ open: boolean; onClose: () => void }> =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ai-settings-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className="w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div ref={dialogRef} className="w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         <div className="flex items-center justify-between p-4 border-b border-neutral-800">
           <div className="flex items-center gap-2"><Cpu className="w-5 h-5 text-amber-400" /><h3 id="ai-settings-title" className="font-semibold text-neutral-100">AI Engine Settings</h3></div>
           <button type="button" onClick={onClose} aria-label="Close AI Engine Settings" className="p-1 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800"><X className="w-5 h-5" /></button>

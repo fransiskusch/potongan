@@ -14,3 +14,11 @@
 - Add modal Escape close, backdrop close, initial provider focus, and focus restoration on close.
 - StepInput job payload and backend unchanged; Task 13 owns payload wiring.
 - Verification: `cd web && npm run build` passes.
+
+### Task 12 Remaining Issues
+
+- Validate persisted `ac_provider` through `getProviderConfig`; invalid values fall back to `DEFAULT_PROVIDER`.
+- Add `aria-label` to AI settings gear button.
+- Trap modal Tab and Shift+Tab focus while preserving Escape, backdrop close, and focus restoration.
+- Backend custom model fetch remains present in `backend/main.py` and `ai_utils.py`; no backend changes made.
+- StepInput payload remains unchanged.

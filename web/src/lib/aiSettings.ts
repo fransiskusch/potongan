@@ -58,8 +58,8 @@ function writeStorage(key: string, value: string): void {
 
 export function AISettingsProvider({ children }: { children: React.ReactNode }) {
   const [provider, setProviderState] = useState<ProviderId>(() => {
-    const saved = readStorage(STORAGE_PROVIDER) as ProviderId | null;
-    return saved || DEFAULT_PROVIDER;
+    const saved = readStorage(STORAGE_PROVIDER);
+    return saved && getProviderConfig(saved as ProviderId) ? (saved as ProviderId) : DEFAULT_PROVIDER;
   });
   const [model, setModelState] = useState(() => readStorage(STORAGE_MODEL) || "");
   const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => readJson(STORAGE_KEYS, {}));

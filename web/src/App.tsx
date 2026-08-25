@@ -244,6 +244,7 @@ function MainWizard() {
               onClick={() => setSettingsOpen(true)}
               className="p-2 rounded-xl text-neutral-400 hover:text-neutral-200 bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-800 transition-colors"
               title="AI Engine Settings"
+              aria-label="Open AI Engine Settings"
             >
               <Settings className="w-4 h-4" />
             </button>
