@@ -4,6 +4,7 @@ import {
   Sparkles,
   Check,
   LogOut,
+  Settings,
   RotateCcw,
   Cpu,
   History,
@@ -16,6 +17,8 @@ import { StepPaste } from "./components/Steps/StepPaste";
 import { StepResult } from "./components/Steps/StepResult";
 import { useJobPolling } from "./hooks/useJobPolling";
 import { clearAuthToken, apiCheckHealth } from "./api";
+import { AISettingsProvider } from "./lib/aiSettings";
+import { AISettingsModal } from "./components/AISettingsModal";
 import type { CreateJobPayload } from "./types/job";
 
 export type WizardStep = 1 | 2 | 3 | 4;
@@ -23,6 +26,7 @@ export type WizardStep = 1 | 2 | 3 | 4;
 const STORAGE_STEP_KEY = "ac_wizard_current_step";
 
 function MainWizard() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentView, setCurrentView] = useState<"wizard" | "history">("wizard");
   const [resetKey, setResetKey] = useState(0);
   const [currentStep, setCurrentStep] = useState<WizardStep>(() => {
@@ -235,6 +239,14 @@ function MainWizard() {
             >
               <LogOut className="w-4 h-4" />
             </button>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="p-2 rounded-xl text-neutral-400 hover:text-neutral-200 bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-800 transition-colors"
+              title="AI Engine Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
         </header>
 
@@ -361,6 +373,7 @@ function MainWizard() {
             <span>Zero Local GPU Required</span>
           </div>
         </footer>
+        <AISettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </div>
     </div>
   );
@@ -368,8 +381,10 @@ function MainWizard() {
 
 export default function App() {
   return (
-    <AuthGate>
-      <MainWizard />
-    </AuthGate>
+    <AISettingsProvider>
+      <AuthGate>
+        <MainWizard />
+      </AuthGate>
+    </AISettingsProvider>
   );
 }
