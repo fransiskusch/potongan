@@ -224,6 +224,41 @@ Apache-2.0.
 
 ---
 
+## Workstream C — UI/UX Polish + Mobile-First (Potongan.id)
+
+### A. Perbaikan mobile-first (fungsional)
+
+| # | Masalah | Solusi |
+|---|---------|--------|
+| 1 | View History terjebak di HP — tidak ada tombol back | Tombol back (chevron kiri) di header `HistoryList.tsx`, prop baru `onBack` → `setCurrentView("wizard")` |
+| 2 | Tombol "New Job" & "History" tersembunyi di HP (`hidden sm:inline-flex`) | Bottom action bar mobile (fixed bottom, safe-area aware): tab "Baru" · "Riwayat" — hanya render `< sm`; desktop tetap tombol header |
+| 3 | Touch target kecil (tombol ikon ±28px) | Minimum 44×44px semua elemen interaktif di mobile |
+| 4 | Input zoom di iOS (font < 16px saat fokus) | Semua input/select `text-base` (16px) di mobile |
+| 5 | Konten tertutup bottom bar | Padding-bottom container utama di mobile |
+
+### B. Polish visual (estetika, tanpa overhaul)
+
+| # | Area | Perbaikan |
+|---|------|-----------|
+| 1 | Design tokens | Definisikan di `web/tailwind.config.js`: warna brand amber, radius kartu, shadow konsisten |
+| 2 | Hierarki tipografi | Skala konsisten: judul step (lg/bold) → label (sm/medium) → hint (xs/neutral-500); standarkan `text-[10px]`/`text-[11px]` campuran jadi `text-xs` |
+| 3 | Spacing konsisten | Section spacing seragam, padding kartu selaras (p-5 / sm:p-8) |
+| 4 | Empty state & loading | History kosong → icon + CTA "Buat klip pertama"; skeleton loading di History |
+| 5 | Progress feedback | Progress bar render + persentase + label tahap; status chip konsisten dengan indikator "Colab Online/Offline" |
+| 6 | Detail | Fokus ring amber konsisten, disabled state jelas, transisi 150-200ms, truncation judul |
+
+### C. Yang tidak diubah
+
+Struktur wizard 4 langkah; dark theme neutral + amber; tanpa component library baru; desktop layout tidak berubah signifikan.
+
+### D. Testing
+
+- Verifikasi visual viewport mobile (390×844) & desktop
+- Alur HP: History → back → wizard → langkah 1-4 tanpa dead-end
+- Lighthouse mobile tanpa regresi performa
+
+---
+
 ## Urutan implementasi
 
 1. **Fase 1 (Workstream A):** workspace terpisah local vs Drive + sinkronisasi
@@ -231,7 +266,9 @@ Apache-2.0.
 2. **Fase 2 (Workstream A):** chunked upload backend + tab Upload di web UI.
 3. **Fase 3 (Workstream B):** `face_tracker.py` MediaPipe + Dominant Face Lock
    + integrasi crop_utils + tests.
-4. **Fase 4:** deploy Vercel + verifikasi end-to-end dari browser.
+4. **Fase 4 (Workstream C):** UI/UX polish + mobile-first (rebrand Potongan.id
+   dikerjakan di fase ini bersamaan).
+5. **Fase 5:** deploy Vercel + verifikasi end-to-end dari browser.
 
 ## Out of scope
 
