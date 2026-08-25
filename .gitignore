@@ -39,3 +39,4 @@ worktrees/
 
 # Build
 dist-macos/
+.vercel
