@@ -32,3 +32,17 @@
 ## Commit
 
 Committed with message `feat: support custom base URL in fetch_provider_models (9router)`.
+
+## Review Fix
+
+- Custom provider validation, network/auth failures, and malformed `/models` responses now propagate to `/api/providers/models` as HTTP 400 error responses instead of false success with an empty model list.
+- Custom discovery uses OpenAI-compatible `client.models.list()` and validates response `.data` as a list or tuple.
+- Added tests for trimmed endpoint forwarding, `/models` URL normalization, unsafe URLs, timeout/malformed responses, and endpoint error responses.
+- Removed unused `urllib.request` import.
+
+## Review Fix Verification
+
+- `pytest backend/tests/test_ai_utils.py backend/tests/test_main.py -v`
+  - 52 passed
+- `git diff --check`
+  - Passed

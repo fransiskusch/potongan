@@ -2,7 +2,6 @@ import json
 import os
 import random
 import time
-import urllib.request
 from urllib.parse import urlsplit, urlunsplit
 from openai import OpenAI
 from google import genai
@@ -759,7 +758,7 @@ def fetch_provider_models(provider: str, api_key: str, custom_base_url: str = ""
             return result
         elif provider == "custom":
             if not custom_base_url:
-                return []
+                raise ValueError("Custom provider requires a Base URL.")
             parts = urlsplit(custom_base_url.strip())
             if parts.scheme not in ("http", "https") or not parts.netloc or parts.username or parts.password or parts.query or parts.fragment:
                 raise ValueError("Custom provider Base URL must be an HTTP(S) URL without credentials or query parameters.")
@@ -773,9 +772,10 @@ def fetch_provider_models(provider: str, api_key: str, custom_base_url: str = ""
                 timeout=15.0,
                 default_headers={**BROWSER_HEADERS, "Authorization": f"Bearer {api_key or '-'}"},
             )
-            models_api = client.models
-            models_resp = models_api() if callable(models_api) else models_api.list()
-            data = models_resp.data if hasattr(models_resp, "data") else models_resp
+            models_resp = client.models.list()
+            data = getattr(models_resp, "data", None)
+            if not isinstance(data, (list, tuple)):
+                raise ValueError("Custom provider returned malformed /models response: missing data.")
             return [{"id": getattr(m, "id", None) or str(m), "label": getattr(m, "id", None) or str(m)} for m in data]
         elif provider in OPENAI_COMPAT_PROVIDERS or provider == "openai":
             cfg = OPENAI_COMPAT_PROVIDERS.get(provider)
@@ -802,6 +802,8 @@ def fetch_provider_models(provider: str, api_key: str, custom_base_url: str = ""
                 result.append({"id": m_id, "label": m_id})
             return result
     except Exception as e:
+        if provider == "custom":
+            raise
         log_error("ai_utils.fetch_provider_models", f"Failed to fetch models for {provider}: {e}")
     return []
 

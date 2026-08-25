@@ -231,6 +231,47 @@ def test_api_fetch_models_endpoint(monkeypatch):
     assert data["models"][0]["id"] == "gemini-2.5-flash"
 
 
+def test_api_fetch_models_custom_forwards_trimmed_fields(monkeypatch):
+    calls = {}
+
+    def fake_fetch(provider, api_key, custom_base_url="", custom_model_name=""):
+        calls.update(provider=provider, api_key=api_key, custom_base_url=custom_base_url, custom_model_name=custom_model_name)
+        return [{"id": "model-a", "label": "model-a"}]
+
+    monkeypatch.setattr("backend.ai_utils.fetch_provider_models", fake_fetch)
+    res = client.post(
+        "/api/providers/models",
+        json={
+            "provider": "custom",
+            "api_key": "  secret  ",
+            "custom_base_url": "  https://router.example/v1/models/  ",
+            "custom_model_name": "  model-a  ",
+        },
+    )
+
+    assert res.status_code == 200
+    assert calls == {
+        "provider": "custom",
+        "api_key": "secret",
+        "custom_base_url": "https://router.example/v1/models/",
+        "custom_model_name": "model-a",
+    }
+
+
+def test_api_fetch_models_custom_errors_are_not_success(monkeypatch):
+    def fail_fetch(*args, **kwargs):
+        raise ValueError("provider authentication failed")
+
+    monkeypatch.setattr("backend.ai_utils.fetch_provider_models", fail_fetch)
+    res = client.post(
+        "/api/providers/models",
+        json={"provider": "custom", "api_key": "secret", "custom_base_url": "https://router.example/v1"},
+    )
+
+    assert res.status_code == 400
+    assert res.json() == {"status": "error", "message": "provider authentication failed"}
+
+
 def test_get_words_endpoint(tmp_path, monkeypatch):
     """Test getting words from a subtitle file."""
     src = tmp_path / "source.mp4"
