@@ -75,7 +75,8 @@ def test_send_telegram_message_empty_token_no_call(monkeypatch):
 def test_notify_job_finished_skips_when_no_env(monkeypatch):
     monkeypatch.setenv("AUTO_CLIPPER_TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setenv("AUTO_CLIPPER_TELEGRAM_CHAT_ID", "")
-    with patch("backend.notifier.send_telegram_message") as mock_send:
+    with patch("backend.notifier.send_telegram_message") as mock_send, \
+         patch("backend.notifier.threading.Thread", side_effect=lambda target, daemon: type("T", (), {"start": target})()):
         notify_job_finished("job-1", "DONE", {"title": "Judul"}, {"title": "Judul"})
         mock_send.assert_not_called()
 
@@ -85,7 +86,8 @@ def test_notify_job_finished_done_sends_message(monkeypatch):
     monkeypatch.setenv("AUTO_CLIPPER_PUBLIC_BASE_URL", "https://be.example.com")
     job = {"title": "Judul Proyek", "clips": [{"path": "/tmp/a_clip_1.mp4", "description": "d1"}], "failed": 0}
     metadata = {"title": "Judul Proyek", "duration_seconds": 720}
-    with patch("backend.notifier.send_telegram_message") as mock_send:
+    with patch("backend.notifier.send_telegram_message") as mock_send, \
+         patch("backend.notifier.threading.Thread", side_effect=lambda target, daemon: type("T", (), {"start": target})()):
         notify_job_finished("job-1", "DONE", job, metadata)
         assert mock_send.called
         text = mock_send.call_args.args[0]
@@ -121,6 +123,10 @@ Reads config from env vars (set by the Colab notebook):
   AUTO_CLIPPER_PUBLIC_BASE_URL     (default https://be-clipper.fransiskus.my.id)
 """
 import os
+import threading
+from urllib.parse import quote
+
+import requests
 
 from backend.logger import log_error, log_app
 
@@ -145,8 +151,6 @@ def send_telegram_message(text: str, bot_token: str, chat_id: str) -> bool:
     if not bot_token or not chat_id or not text:
         return False
     try:
-        import requests
-
         url = f"{TELEGRAM_API}/bot{bot_token}/sendMessage"
         resp = requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
         return resp.status_code == 200
@@ -189,7 +193,7 @@ def notify_job_finished(job_id: str, status: str, job: dict, metadata: dict) -> 
         lines.append("\U0001F4E5 Unduh klip:")
         for i, clip in enumerate(clips, start=1):
             name = os.path.basename(clip.get("path", "")) or f"clip_{i}"
-            url = f"{base_url}/video?path={clip.get('path', '')}"
+            url = f"{base_url}/video?path={quote(str(clip.get('path', '')), safe='')}"
             lines.append(f"{i}. {name} \u2014 {url}")
 
     lines.append("")
@@ -203,14 +207,12 @@ def notify_job_finished(job_id: str, status: str, job: dict, metadata: dict) -> 
         lines.append(f"\U0001F4E5 Unduh klip ({keep} pertama):")
         for i, clip in enumerate(clips[:keep], start=1):
             name = os.path.basename(clip.get("path", "")) or f"clip_{i}"
-            lines.append(f"{i}. {name} \u2014 {base_url}/video?path={clip.get('path', '')}")
+            lines.append(f"{i}. {name} \u2014 {base_url}/video?path={quote(str(clip.get('path', '')), safe='')}")
         lines.append(f"\u2026dan {len(clips) - keep} klip lainnya, buka web untuk melihat semua.")
         lines.append("\u23F3 Link aktif selama backend Colab menyala.")
         text = "\n".join(lines)
 
     # Fire in a thread so a slow/failing network never blocks job finalization.
-    import threading
-
     def _send():
         try:
             ok = send_telegram_message(text, bot_token, chat_id)
@@ -242,7 +244,7 @@ git commit -m "feat: add best-effort Telegram notifier module"
 
 **Interfaces:**
 - Consumes: `notify_job_finished` (Task 1).
-- Produces: side-effect — Telegram message on DONE/ERROR. No new signatures.
+- Produces: side-effect — Telegram message on DONE/ERROR. `notify_job_finished` owns its daemon thread; `_finalize_job` calls it once and does not create another thread.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -327,7 +329,7 @@ git commit -m "feat: send Telegram notification on job DONE/ERROR"
 
 **Files:**
 - Modify: `backend/cloud_sync.py` (add `sync_source_to_persistent`)
-- Modify: `backend/jobs.py` (`create_job` signature + job dict + `_finalize_job` source sync)
+- Modify: `backend/jobs.py` (`create_job` signature + job dict)
 - Modify: `backend/main.py` (`CreateJobRequest` add `save_source_to_drive`)
 - Test: `backend/tests/test_cloud_sync.py`
 
@@ -482,16 +484,11 @@ Expected: FAIL (file not created).
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `backend/jobs.py`, inside the cloud-sync block of `_finalize_job` (after `sync_project_to_persistent(local_proj)`), add:
+In `backend/jobs.py`, add source sync inside existing `_finalize_job` cloud-sync block after `sync_project_to_persistent(local_proj)`. Skip local URLs. Store returned destination path in `source_dest`.
 
-```python
-                # Salin source video ke Drive bila diminta (default ON).
-                if job.get("save_source_to_drive", True) and not str(job.get("url", "")).startswith("local:"):
-                    from backend.cloud_sync import sync_source_to_persistent
-                    sync_source_to_persistent(local_proj)
-```
+In the same cloud-sync block, replace unconditional `source_video` path rewrite with this behavior: when `source_dest` is non-empty, set `metadata["source_video"] = source_dest`; when source sync is disabled or fails, leave `metadata["source_video"]` unchanged. Continue rewriting `subtitle_path` and clip paths as before. This prevents history from pointing at Drive file that was not copied.
 
-In `backend/main.py`, update `api_create_job`'s `create_job(...)` call to pass `save_source_to_drive=req.save_source_to_drive` (add as last keyword arg after `subtitle_config=req.subtitle_config`).
+In `backend/main.py`, update `api_create_job` existing full `create_job` call to pass `save_source_to_drive=req.save_source_to_drive` as keyword after `subtitle_config=req.subtitle_config`. Do not replace existing positional arguments.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -538,7 +535,6 @@ def _make_tree(root):
 def _client_cloud(monkeypatch, root):
     monkeypatch.setenv("AUTO_CLIPPER_CLOUD_MODE", "1")
     # Patch the base drive path used by the endpoint to our tmp root.
-    monkeypatch.setattr("backend.main.os.path.abspath", lambda p: p)
     monkeypatch.setattr("backend.main._GDRIVE_BASE", str(root))
     from backend.main import app
     return TestClient(app)
@@ -546,8 +542,9 @@ def _client_cloud(monkeypatch, root):
 
 def test_gdrive_search_finds_video_case_insensitive(monkeypatch, tmp_path):
     _make_tree(tmp_path)
+    monkeypatch.setenv("AUTO_CLIPPER_WEB_TOKEN", "test-token")
     c = _client_cloud(monkeypatch, tmp_path)
-    r = c.get("/gdrive-search", params={"q": "podcast"})
+    r = c.get("/gdrive-search", params={"q": "podcast"}, headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     data = r.json()
     names = [i["name"] for i in data["results"]]
@@ -560,16 +557,17 @@ def test_gdrive_search_finds_video_case_insensitive(monkeypatch, tmp_path):
 def test_gdrive_search_no_results(monkeypatch, tmp_path):
     _make_tree(tmp_path)
     c = _client_cloud(monkeypatch, tmp_path)
-    r = c.get("/gdrive-search", params={"q": "zzznothing"})
+    r = c.get("/gdrive-search", params={"q": "zzznothing"}, headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     assert r.json()["results"] == []
 
 
 def test_gdrive_search_not_cloud_mode(monkeypatch):
     monkeypatch.delenv("AUTO_CLIPPER_CLOUD_MODE", raising=False)
+    monkeypatch.setenv("AUTO_CLIPPER_WEB_TOKEN", "test-token")
     from backend.main import app
     c = TestClient(app)
-    r = c.get("/gdrive-search", params={"q": "x"})
+    r = c.get("/gdrive-search", params={"q": "x"}, headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200
     assert r.json().get("status") == "error"
 ```
@@ -594,7 +592,6 @@ def api_get_gdrive_browser(dir_path: str = Query("/content/drive/MyDrive")):
     if not os.environ.get("AUTO_CLIPPER_CLOUD_MODE"):
         return {"status": "error", "message": "Only available in Cloud Mode"}
     base_drive = os.path.abspath(_GDRIVE_BASE)
-    # ... (unchanged body)
 ```
 
 Then add:
@@ -810,9 +807,9 @@ class _DominantFaceLock:
 
 
 def sample_face_trajectory_haar(video_path, start_time, end_time, interval=0.5, should_cancel=None):
-    """Delegate to legacy Haar tracker (imported lazily to avoid circulars)."""
-    from backend.crop_utils import sample_face_trajectory as _haar
-    return _haar(video_path, start_time, end_time, interval=interval, should_cancel=should_cancel)
+    """Call the legacy Haar implementation exposed by crop_utils."""
+    from backend.crop_utils import _sample_face_trajectory_haar
+    return _sample_face_trajectory_haar(video_path, start_time, end_time, interval=interval, should_cancel=should_cancel)
 
 
 def sample_face_trajectory(video_path, start_time, end_time, interval=0.25, should_cancel=None):
@@ -880,7 +877,7 @@ def sample_face_trajectory(video_path, start_time, end_time, interval=0.25, shou
 def detect_video_layout(video_path, start_time=None, end_time=None, samples=12, should_cancel=None):
     """Layout detection. MediaPipe if available, else Haar (legacy)."""
     if not _mediapipe_available():
-        from backend.crop_utils import detect_video_layout as _haar_layout
+        from backend.crop_utils import _detect_video_layout_haar as _haar_layout
         return _haar_layout(video_path, start_time=start_time, end_time=end_time, samples=samples, should_cancel=should_cancel)
 
     try:
@@ -957,7 +954,7 @@ def detect_video_layout(video_path, start_time=None, end_time=None, samples=12, 
         return result
     except Exception as e:
         log_error("face_tracker.detect_video_layout", f"MediaPipe failed ({e}); fallback to Haar.")
-        from backend.crop_utils import detect_video_layout as _haar_layout
+        from backend.crop_utils import _detect_video_layout_haar as _haar_layout
         return _haar_layout(video_path, start_time=start_time, end_time=end_time, samples=samples, should_cancel=should_cancel)
 ```
 
@@ -999,6 +996,14 @@ def test_crop_utils_delegates_when_mediapipe(monkeypatch):
         traj = sample_face_trajectory("dummy.mp4", 0.0, 0.5)
         assert traj == [(0.0, 0.5)]
         mock_ft.assert_called_once()
+
+
+def test_crop_utils_falls_back_to_private_haar(monkeypatch):
+    monkeypatch.setattr("backend.face_tracker._mediapipe_available", lambda: False)
+    with patch("backend.crop_utils._sample_face_trajectory_haar", return_value=[(0.0, 0.5)]) as mock_haar:
+        from backend.crop_utils import sample_face_trajectory
+        assert sample_face_trajectory("dummy.mp4", 0.0, 0.5) == [(0.0, 0.5)]
+        mock_haar.assert_called_once()
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1008,28 +1013,30 @@ Expected: FAIL (crop_utils doesn't delegate yet; its own Haar code runs).
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `backend/crop_utils.py`, add a guard at the top of both `sample_face_trajectory` (line 121) and `detect_video_layout` (line 250) to delegate to `face_tracker` when MediaPipe is available. For `sample_face_trajectory`, insert immediately after the docstring:
+In `backend/crop_utils.py`, rename the current Haar implementations to private helpers (`_sample_face_trajectory_haar` and `_detect_video_layout_haar`) and add public wrapper functions with the existing signatures. The wrappers delegate to `face_tracker` when MediaPipe is available; otherwise they call the private Haar helper. This prevents circular recursion in the fallback path.
 
 ```python
+def sample_face_trajectory(video_path, start_time, end_time, interval=0.5, should_cancel=None):
     try:
-        from backend.face_tracker import _mediapipe_available
+        from backend.face_tracker import _mediapipe_available, sample_face_trajectory as _mp_traj
         if _mediapipe_available():
-            from backend.face_tracker import sample_face_trajectory as _mp_traj
-            return _mp_traj(video_path, start_time, end_time, interval=interval, should_cancel=should_cancel)
+            return _mp_traj(video_path, start_time, end_time, interval=0.25, should_cancel=should_cancel)
     except Exception:
         pass
+    return _sample_face_trajectory_haar(video_path, start_time, end_time, interval=interval, should_cancel=should_cancel)
 ```
 
 For `detect_video_layout`, insert immediately after its docstring:
 
 ```python
+def detect_video_layout(video_path, start_time=None, end_time=None, samples=12, should_cancel=None):
     try:
-        from backend.face_tracker import _mediapipe_available
+        from backend.face_tracker import _mediapipe_available, detect_video_layout as _mp_layout
         if _mediapipe_available():
-            from backend.face_tracker import detect_video_layout as _mp_layout
             return _mp_layout(video_path, start_time=start_time, end_time=end_time, samples=samples, should_cancel=should_cancel)
     except Exception:
         pass
+    return _detect_video_layout_haar(video_path, start_time=start_time, end_time=end_time, samples=samples, should_cancel=should_cancel)
 ```
 
 (Delegation only happens in cloud mode effectively, because MediaPipe is only installed in Colab; the desktop environment will never satisfy `_mediapipe_available()`.)
@@ -1852,6 +1859,8 @@ In `web/src/App.tsx`, inside `MainWizard`:
   const { provider } = useAISettings();
   const isManualMode = provider === "manual_ai";
 
+Capture mode when creating job and keep it in wizard state (`jobMode`). Use `jobMode` for an active job instead of reading current settings provider, so changing settings cannot remap an existing job. Initialize `jobMode` from persisted job data when restoring a job; reset it with the job.
+
   const STEPS_CONFIG = isManualMode
     ? [
         { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
@@ -1894,7 +1903,7 @@ The existing step-sync `useEffect` (lines 84-96) maps: `AWAITING_MANUAL`→2/3, 
 
 - [ ] **Step 3: Render AI Processing progress view for step 2 in AI mode**
 
-Update the `{currentStep === 2 && ...}` block so that in AI mode (3-step), step 2 renders a progress-only view (reuse `StepPrompt` which already shows a loading state when there's no prompt, and won't show the "copy prompt" actions because `prompt` is empty). The existing `<StepPrompt>` already handles the empty-prompt (transcribing) state; keep it as-is but pass no `onNext` prompt action relevance. No structural change needed — `StepPrompt` displays the loading state automatically. Leave the render as:
+Update current-step-2 block so AI mode renders progress-only view. Reuse existing `StepPrompt`; empty `prompt` already selects loading state.
 
 ```tsx
               {currentStep === 2 && (
@@ -1911,18 +1920,7 @@ Update the `{currentStep === 2 && ...}` block so that in AI mode (3-step), step 
 
 - [ ] **Step 4: Render Export at step 3 in AI mode**
 
-Update the step-3 / step-4 render blocks to render `StepResult` at whichever step is the final one. Replace:
-
-```tsx
-              {currentStep === 3 && (
-                <StepPaste ... />
-              )}
-              {currentStep === 4 && (
-                <StepResult ... />
-              )}
-```
-
-with:
+Update step-3 / step-4 render blocks. Keep existing `StepPaste` props for manual step 3. Render existing `StepResult` props at step 4 in manual mode or step 3 in AI mode:
 
 ```tsx
               {currentStep === 3 && isManualMode && (
@@ -2031,7 +2029,7 @@ Add the search input UI right below the header (before the breadcrumb bar):
         </div>
 ```
 
-Update the list body to render search results when `searchResults !== null`:
+Update list body to render search results when `searchResults !== null`; preserve existing browse renderer unchanged in `else` branch:
 
 ```tsx
           {searchResults !== null ? (
@@ -2039,9 +2037,9 @@ Update the list body to render search results when `searchResults !== null`:
               <div className="text-center py-12 text-neutral-500 text-sm">Tidak ada video yang cocok dengan '{searchQuery}'</div>
             ) : (
               <div className="space-y-1">
-                {searchResults.map((item, i) => (
-                  <button
-                    key={i}
+                 {searchResults.map((item) => (
+                   <button
+                     key={item.path}
                     onClick={() => onSelectFile(item.path)}
                     className="w-full flex items-center gap-3 p-3 text-left hover:bg-neutral-800 rounded-xl transition-colors group"
                   >
@@ -2051,15 +2049,14 @@ Update the list body to render search results when `searchResults !== null`:
                 ))}
               </div>
             )
-          ) : (
-            /* existing browse list */
-            <div className="space-y-1">
-              {items.map((item, i) => ( ... ))}
-            </div>
-          )}
+           ) : (
+             <div className="space-y-1">
+               {/* Existing browse item renderer remains unchanged. */}
+             </div>
+           )}
 ```
 
-(Keep the existing browse `items.map(...)` block intact inside the `else` branch. Import `apiSearchGDrive` at the top of StepInput.tsx from `../../api`.)
+(Insert existing browse item renderer inside this `else` branch unchanged. The abbreviated block above is structural guidance, not literal JSX. Import `apiSearchGDrive` at top of StepInput.tsx from `../../api`.)
 
 - [ ] **Step 2: Verify build compiles**
 
