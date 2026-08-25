@@ -1139,6 +1139,14 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
             log_error("jobs.finalize_cloud_sync", e)
 
     if status in ["DONE", "ERROR", "CANCELLED", "AWAITING_MANUAL"]:
+        # Notify only user-facing terminal states; notifier owns its daemon thread.
+        if status in ("DONE", "ERROR"):
+            try:
+                from backend.notifier import notify_job_finished
+                notify_job_finished(job_id, status, job, metadata)
+            except Exception as e:
+                log_error("jobs.finalize_notify", e)
+
         try:
             from backend.db import save_history
             save_history(job_id, job["url"], status, job["clips"], metadata)

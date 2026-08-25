@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import time
+from unittest.mock import patch
 
 from backend import jobs
 from backend.crop_utils import crop_to_vertical
@@ -92,6 +93,41 @@ def test_get_project_workspace(tmp_path):
     assert os.path.exists(ws["subtitles_dir"])
     assert os.path.exists(ws["clips_dir"])
     assert os.path.exists(ws["broll_dir"])
+
+
+def test_finalize_job_notifies_on_done(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTO_CLIPPER_TELEGRAM_BOT_TOKEN", "b")
+    monkeypatch.setenv("AUTO_CLIPPER_TELEGRAM_CHAT_ID", "c")
+    monkeypatch.delenv("AUTO_CLIPPER_CLOUD_MODE", raising=False)
+    job_id = "notif-done-1"
+    jobs.active_jobs[job_id] = {
+        "id": job_id, "url": "https://youtube.com/x", "title": "T",
+        "status": "DONE", "clips": [], "failed": 0, "error": None,
+        "mode": "manual", "source_path": str(tmp_path / "src.mp4"),
+    }
+    with patch("backend.notifier.notify_job_finished") as mock_notify:
+        try:
+            jobs._finalize_job(job_id, "DONE", {"title": "T"})
+            mock_notify.assert_called_once()
+        finally:
+            jobs.active_jobs.pop(job_id, None)
+
+
+def test_finalize_job_no_notify_on_cancelled(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTO_CLIPPER_TELEGRAM_BOT_TOKEN", "b")
+    monkeypatch.setenv("AUTO_CLIPPER_TELEGRAM_CHAT_ID", "c")
+    monkeypatch.delenv("AUTO_CLIPPER_CLOUD_MODE", raising=False)
+    job_id = "notif-cancel-1"
+    jobs.active_jobs[job_id] = {
+        "id": job_id, "url": "x", "title": "T", "status": "CANCELLED",
+        "clips": [], "failed": 0, "error": None, "mode": "manual",
+    }
+    with patch("backend.notifier.notify_job_finished") as mock_notify:
+        try:
+            jobs._finalize_job(job_id, "CANCELLED", {"title": "T"})
+            mock_notify.assert_not_called()
+        finally:
+            jobs.active_jobs.pop(job_id, None)
 
 
 def test_create_job_requires_title():
