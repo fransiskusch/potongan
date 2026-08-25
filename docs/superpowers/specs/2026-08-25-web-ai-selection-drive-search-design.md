@@ -140,10 +140,30 @@ StepInput submit
 StepResult tampilkan clips + download
 ```
 
-Struktur wizard web tidak berubah: Step 2/3 (prompt/paste JSON) hanya
-relevan untuk mode Manual. Untuk mode AI otomatis, status langsung
-TRANSCRIBING → CROPPING → DONE dan wizard otomatis skip ke Step 4
-(logika sinkronisasi step sudah ada di `web/src/App.tsx`).
+### Wizard adaptif per mode (keputusan review)
+
+Navigasi wizard dihitung dari mode job (bukan lagi fixed 4 step):
+
+- **Mode AI otomatis** (provider bukan manual): 3 step —
+  `Input & Style` → `AI Processing` → `Render & Download`.
+  - Step 2 ("AI Processing") menampilkan progress live sesuai status
+    backend: mendownload video / transkripsi Whisper / "AI memilih
+    highlight via <provider>…" / merender klip N dari M.
+  - JSON highlight dari AI **tidak pernah muncul ke pengguna** — backend
+    langsung mengonsumsinya dan lanjut render tanpa henti.
+  - Implementasi: `STEPS_CONFIG` di `web/src/App.tsx` menjadi fungsi
+    `getSteps(mode)`; logika auto-sync step yang sudah ada
+    (baris 84-96) memetakan status → step untuk 3-step layout
+    (TRANSCRIBING/CROPPING/DONE → step "AI Processing" lalu
+    "Render & Download").
+- **Mode Manual** (provider = manual): 4 step seperti sekarang — tidak
+  berubah (Step 2 prompt → Step 3 paste JSON → Step 4 render).
+
+Opsi yang dipertimbangkan dan ditolak: (1) wizard tetap 4 step dan mode
+auto melewati Step 3 — ditolak karena step "hantu" membingungkan;
+(3) review highlight sebelum render dengan status backend baru — ditolak
+karena menambah interaksi manual padahal tujuan mode auto adalah
+hands-free (bisa jadi fitur masa depan terpisah).
 
 ## 4. Testing
 
@@ -155,6 +175,10 @@ TRANSCRIBING → CROPPING → DONE dan wizard otomatis skip ke Step 4
 - **Frontend**: `npm run build` sukses; smoke test manual — pilih Custom
   → isi base URL 9router → Fetch Models → Test Key → buat job dengan
   video pendek dari Drive → klip selesai.
+- **Wizard adaptif**: verifikasi mode manual masih 4 step (regresi), dan
+  mode AI menampilkan 3 step dengan progress yang benar (unit logika
+  `getSteps(mode)` + pemetaan status→step bila di-test via component
+  test ringan atau smoke test manual).
 - Tidak ada perubahan pipeline render/subtitle → tidak perlu test
   tambahan untuk crop/subtitle.
 
@@ -173,5 +197,6 @@ TRANSCRIBING → CROPPING → DONE dan wizard otomatis skip ke Step 4
 | `web/src/lib/providers.ts` | Registry provider (id, label, defaultModel, fallbackModels) | — |
 | `web/src/components/AISettingsModal.tsx` | Pilih provider/key/model, fetch models, test key | providers.ts, api.ts |
 | `AISettingsContext` | Share state provider/key/model ke StepInput | providers.ts |
+| `getSteps(mode)` (App.tsx) | Hitung konfigurasi navigasi wizard per mode (3 step AI / 4 step manual) | — |
 | `GET /gdrive-search` | Search file video rekursif di MyDrive | Cloud Mode + Drive mount |
 | `apiSearchGDrive` | HTTP wrapper search Drive | api.ts |
