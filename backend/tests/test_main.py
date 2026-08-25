@@ -221,7 +221,7 @@ def test_get_logs_endpoint():
 def test_api_fetch_models_endpoint(monkeypatch):
     monkeypatch.setattr(
         "backend.ai_utils.fetch_provider_models",
-        lambda provider, api_key: [{"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"}]
+        lambda provider, api_key, custom_base_url="", custom_model_name="": [{"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"}]
     )
     res = client.post("/api/providers/models", json={"provider": "gemini", "api_key": "valid-key"})
     assert res.status_code == 200

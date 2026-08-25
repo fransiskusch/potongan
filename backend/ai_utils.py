@@ -2,6 +2,8 @@ import json
 import os
 import random
 import time
+import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 from openai import OpenAI
 from google import genai
 from google.genai import types
@@ -727,7 +729,7 @@ def process_with_deepseek(file_path: str, api_key: str, karaoke: bool = False, e
     """Back-compat wrapper -> process_with_openai_compatible(..., "deepseek")."""
     return process_with_openai_compatible(file_path, api_key, "deepseek", karaoke=karaoke, extra_prompt=extra_prompt, limit=limit, is_cancelled=is_cancelled, register_proc=register_proc, whisper_model=whisper_model)
 
-def fetch_provider_models(provider: str, api_key: str) -> list:
+def fetch_provider_models(provider: str, api_key: str, custom_base_url: str = "", custom_model_name: str = "") -> list:
     """Query provider API for available models."""
     try:
         if provider == "gemini":
@@ -755,6 +757,26 @@ def fetch_provider_models(provider: str, api_key: str) -> list:
                         "label": f"{display} ({clean_name})" if display and display != clean_name else clean_name
                     })
             return result
+        elif provider == "custom":
+            if not custom_base_url:
+                return []
+            parts = urlsplit(custom_base_url.strip())
+            if parts.scheme not in ("http", "https") or not parts.netloc or parts.username or parts.password or parts.query or parts.fragment:
+                raise ValueError("Custom provider Base URL must be an HTTP(S) URL without credentials or query parameters.")
+            path = parts.path.rstrip("/")
+            if path.endswith("/models"):
+                path = path[:-len("/models")].rstrip("/")
+            base_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+            client = OpenAI(
+                api_key=api_key or "-",
+                base_url=base_url,
+                timeout=15.0,
+                default_headers={**BROWSER_HEADERS, "Authorization": f"Bearer {api_key or '-'}"},
+            )
+            models_api = client.models
+            models_resp = models_api() if callable(models_api) else models_api.list()
+            data = models_resp.data if hasattr(models_resp, "data") else models_resp
+            return [{"id": getattr(m, "id", None) or str(m), "label": getattr(m, "id", None) or str(m)} for m in data]
         elif provider in OPENAI_COMPAT_PROVIDERS or provider == "openai":
             cfg = OPENAI_COMPAT_PROVIDERS.get(provider)
             base_url = cfg["base_url"] if cfg else None

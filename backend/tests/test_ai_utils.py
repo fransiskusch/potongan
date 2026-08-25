@@ -226,6 +226,53 @@ def test_fetch_provider_models_openai():
         assert models[0]["id"] == "gpt-4o"
 
 
+def test_fetch_provider_models_custom_base_url(monkeypatch):
+    from backend import ai_utils
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            assert kwargs.get("base_url") == "https://my9router.example/v1"
+
+        def models(self):
+            class M:
+                def __init__(self, i):
+                    self.id = i
+                def __iter__(self):
+                    return iter([])
+            return type("Resp", (), {"data": [M("model-a"), M("model-b")]})()
+
+    monkeypatch.setattr(ai_utils, "OpenAI", FakeClient)
+    models = ai_utils.fetch_provider_models("custom", "key", custom_base_url="https://my9router.example/v1")
+    assert [m["id"] for m in models] == ["model-a", "model-b"]
+
+
+def test_fetch_provider_models_custom_normalizes_url_and_sends_auth(monkeypatch):
+    from backend import ai_utils
+
+    calls = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            calls.update(kwargs)
+
+        def models(self):
+            return type("Resp", (), {"data": [type("M", (), {"id": "model-a"})()]})()
+
+    monkeypatch.setattr(ai_utils, "OpenAI", FakeClient)
+    models = ai_utils.fetch_provider_models("custom", "secret", custom_base_url="https://router.example/v1/")
+
+    assert [m["id"] for m in models] == ["model-a"]
+    assert calls["base_url"] == "https://router.example/v1"
+    assert calls["timeout"] == 15.0
+    assert calls["default_headers"]["Authorization"] == "Bearer secret"
+
+
+def test_fetch_provider_models_custom_missing_url_returns_empty():
+    from backend.ai_utils import fetch_provider_models
+
+    assert fetch_provider_models("custom", "key") == []
+
+
 def test_transcribe_with_faster_whisper_vad_success():
     from backend.ai_utils import transcribe_with_faster_whisper
     from unittest.mock import MagicMock, patch

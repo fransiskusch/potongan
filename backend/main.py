@@ -295,6 +295,8 @@ class TestAiRequest(BaseModel):
 class FetchModelsRequest(BaseModel):
     provider: str
     api_key: str
+    custom_base_url: str = ""
+    custom_model_name: str = ""
 
 class GenerateSocialKitRequest(BaseModel):
     description: str
@@ -318,7 +320,7 @@ def api_fetch_models(req: FetchModelsRequest):
     """Fetch available models from a provider's API."""
     try:
         from backend.ai_utils import fetch_provider_models
-        models = fetch_provider_models(req.provider, req.api_key.strip())
+        models = fetch_provider_models(req.provider, req.api_key.strip(), custom_base_url=req.custom_base_url.strip(), custom_model_name=req.custom_model_name.strip())
         return {"status": "success", "models": models}
     except Exception as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
