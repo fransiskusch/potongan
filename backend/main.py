@@ -123,7 +123,15 @@ async def verify_token(request: Request, call_next):
 
 @app.post("/upload")
 def api_upload_video(file: UploadFile = File(...)):
-    temp_dir = os.path.abspath(os.path.join(get_app_data_dir(), "temp_downloads"))
+    from backend.cloud_sync import is_cloud_mode
+    if is_cloud_mode():
+        base = os.environ.get("AUTO_CLIPPER_LOCAL_WORKDIR", "").strip()
+    else:
+        base = ""
+    if base:
+        temp_dir = os.path.abspath(os.path.expanduser(base))
+    else:
+        temp_dir = os.path.abspath(os.path.join(get_app_data_dir(), "temp_downloads"))
     os.makedirs(temp_dir, exist_ok=True)
     file_path = os.path.join(temp_dir, f"upload_{file.filename}")
     with open(file_path, "wb") as buffer:
