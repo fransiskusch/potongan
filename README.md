@@ -119,17 +119,19 @@ Jika Anda pengembang di Mac dan ingin mem-build aplikasi macOS sendiri (misalnya
 
 > **Catatan:** Ini _build pengujian_ (artifact auto-updater dimatikan, jadi tidak perlu signing key). Script menyasar target **Intel (x86_64)**; jika Anda di Apple Silicon, ubah variabel `TARGET` di dalam script menjadi `aarch64-apple-darwin`. Untuk menghemat ruang setelah selesai, jalankan `CLEAN=1 ./build-mac-local.sh` (sisa build dihapus, DMG tetap disimpan). Jika Gatekeeper memblokir: `xattr -cr "/Applications/Auto Clipper.app"`.
 
-### Opsi 5: Menjalankan Backend di Google Colab (Gratis GPU T4)
+### Opsi 5: Menjalankan Backend di Google Colab (Gratis GPU T4) — Potongan.id Cloud
 
-Jika PC Anda tidak memiliki GPU yang mumpuni, Anda bisa menjalankan *backend* Auto Clipper di **Google Colab** dan mengontrolnya dari web browser!
+Jalankan mesin render di **Google Colab T4** dan akses UI web **Potongan.id** dari browser mana saja (termasuk HP).
 
 1. Buka file **[`Auto_Clipper_Colab.ipynb`](Auto_Clipper_Colab.ipynb)** di Google Colab.
-2. Pastikan Runtime Colab di-set ke **T4 GPU** (Runtime > Change runtime type > T4 GPU).
-3. Masukkan `NGROK_AUTH_TOKEN` (daftar gratis di ngrok.com) dan tentukan `WEB_TOKEN` rahasia Anda di dalam sel notebook, lalu *Run All*.
-4. Colab akan menginstal semua *dependencies* dan memberikan **URL Ngrok public**.
-5. Buka frontend web secara lokal (`cd web && npm run dev`) atau versi yang di-hosting.
-6. Masukkan URL Ngrok dan `WEB_TOKEN` rahasia Anda pada layar login Web UI.
-7. Nikmati render video dan transkripsi *Whisper* ultra-cepat dengan GPU Colab!
+2. Pastikan **Runtime > Change runtime type > T4 GPU** (notebook akan memverifikasi dan berhenti dengan pesan jelas bila bukan T4).
+3. Jalankan semua sel berurutan: mount Drive → install FFmpeg + cloudflared + font subtitle → clone repo → verifikasi GPU → jalankan backend.
+4. Di sel terakhir, isi **Cloudflare Tunnel Token** (dari Cloudflare Zero Trust → Tunnels, hostname `be-clipper.fransiskus.my.id` → `http://localhost:8000`), **API Secret Token** Anda, dan **Allowed Origins** (default `https://clip.fransiskus.my.id`).
+5. Seluruh proses berat (download YouTube, transkripsi Whisper GPU, render FFmpeg) berjalan di disk lokal Colab yang cepat; **hasil klip + riwayat otomatis tersimpan di Google Drive** (`MyDrive/AutoClipperData`).
+6. Buka **Potongan.id** (UI di Vercel: `clip.fransiskus.my.id`), masukkan API Secret Token Anda, dan mulai clipping.
+7. Upload video lokal langsung dari browser, pilih file dari Google Drive, atau tempel link YouTube/TikTok/Instagram/X.
+
+> Catatan: backend Colab aktif selama sesi notebook hidup (±12 jam). Semua hasil dan riwayat aman di Drive — nyalakan ulang notebook kapan pun tanpa kehilangan data.
 
 ---
 
