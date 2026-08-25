@@ -6,14 +6,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 from backend.colab_api import (
     DEFAULT_HOST,
+    DEFAULT_LOCAL_WORKDIR,
     DEFAULT_PORT,
     DEFAULT_WORKSPACE,
+    check_tunnel_health,
+    cleanup_stale_uploads,
     parse_args,
     run_server,
     setup_environment,
     start_cloudflared,
     start_uvicorn,
     terminate_processes,
+    verify_gpu,
 )
 
 
@@ -172,9 +176,52 @@ def test_run_server_lifecycle():
     mock_cf.poll.return_value = None
     mock_cf.pid = 5002
 
-    with patch("backend.colab_api.start_uvicorn", return_value=mock_api):
-        with patch("backend.colab_api.start_cloudflared", return_value=mock_cf):
-            with patch("time.sleep", return_value=None):
-                code = run_server(["--cloudflare-token", "token-xyz", "--workspace", "/tmp/ws"])
-                assert code == 0
-                mock_cf.terminate.assert_called()
+    with patch("backend.colab_api.verify_gpu", return_value=(True, "GPU OK: T4")):
+        with patch("backend.colab_api.cleanup_stale_uploads", return_value=0):
+            with patch("backend.colab_api.start_uvicorn", return_value=mock_api):
+                with patch("backend.colab_api.start_cloudflared", return_value=mock_cf):
+                    with patch("time.sleep", return_value=None):
+                        code = run_server(["--cloudflare-token", "token-xyz", "--workspace", "/tmp/ws"])
+                        assert code == 0
+                        mock_cf.terminate.assert_called()
+
+
+def test_setup_environment_sets_local_workdir(monkeypatch, tmp_path):
+    ws = str(tmp_path / "drive_ws")
+    local_ws = str(tmp_path / "local_ws")
+    setup_environment(ws, "secret", local_workdir=local_ws)
+    assert os.environ.get("AUTO_CLIPPER_LOCAL_WORKDIR") == local_ws
+    assert os.path.exists(local_ws)
+
+
+def test_setup_environment_local_workdir_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("AUTO_CLIPPER_LOCAL_WORKDIR", raising=False)
+    ws = str(tmp_path / "drive_ws")
+    setup_environment(ws, "secret")
+    assert os.environ.get("AUTO_CLIPPER_LOCAL_WORKDIR") == DEFAULT_LOCAL_WORKDIR
+
+
+def test_verify_gpu_no_torch(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "torch", None)
+    ok, msg = verify_gpu(require_t4=True)
+    assert ok is False
+    assert "torch" in msg.lower()
+
+
+def test_check_tunnel_health_unreachable():
+    assert check_tunnel_health("http://127.0.0.1:1", timeout=0.5) is False
+
+
+def test_cleanup_stale_uploads_removes_old(monkeypatch, tmp_path):
+    import time
+
+    old = tmp_path / "old.mp4"
+    old.write_bytes(b"x")
+    two_days_ago = time.time() - 48 * 3600
+    os.utime(old, (two_days_ago, two_days_ago))
+    fresh = tmp_path / "fresh.mp4"
+    fresh.write_bytes(b"y")
+    removed = cleanup_stale_uploads(str(tmp_path), max_age_hours=24.0)
+    assert removed == 1
+    assert not old.exists()
+    assert fresh.exists()
