@@ -89,6 +89,19 @@ def test_create_job_accepts_valid_url(monkeypatch):
     assert r.json()["job_id"] == "fake-id"
 
 
+def test_create_job_forwards_save_source_to_drive(monkeypatch):
+    captured = {}
+    monkeypatch.setattr("backend.jobs.create_job", lambda *a, **k: captured.update(k) or "fake-id")
+    monkeypatch.setattr("backend.ai_utils.ping_provider", lambda *a, **k: None)
+    r = client.post("/jobs", json={
+        "url": "https://youtube.com/watch?v=abc",
+        "title": "My Test Project",
+        "save_source_to_drive": False,
+    })
+    assert r.status_code == 200
+    assert captured["save_source_to_drive"] is False
+
+
 def test_create_job_rejects_missing_title(monkeypatch):
     monkeypatch.setattr("backend.ai_utils.ping_provider", lambda *a, **k: None)
     r = client.post("/jobs", json={"url": "https://youtube.com/watch?v=abc", "title": ""})

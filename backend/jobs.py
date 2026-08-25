@@ -1113,7 +1113,7 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
             metadata[key] = job[key]
 
     # --- Sinkronisasi hasil ke Drive (cloud mode) ---
-    from backend.cloud_sync import is_cloud_mode, get_persistent_root, sync_project_to_persistent, rewrite_path_to_persistent
+    from backend.cloud_sync import is_cloud_mode, get_persistent_root, sync_project_to_persistent, sync_source_to_persistent, rewrite_path_to_persistent
 
     if is_cloud_mode() and status in ["DONE"]:
         try:
@@ -1126,12 +1126,17 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
                 proj_name = sanitize_title(job.get("title", "")) or f"Project_{job_id}"
                 local_proj = os.path.join(local_projects_root, proj_name)
                 sync_project_to_persistent(local_proj)
+                source_dest = ""
+                if job.get("save_source_to_drive", True) and not job.get("url", "").startswith("local:"):
+                    source_dest = sync_source_to_persistent(local_proj)
                 # Rewrite path klip + metadata agar menunjuk Drive
                 for clip in job.get("clips", []):
                     clip["path"] = rewrite_path_to_persistent(clip["path"], local_projects_root, persistent_projects)
-                for meta_key in ("source_video", "subtitle_path"):
+                for meta_key in ("subtitle_path",):
                     if metadata.get(meta_key):
                         metadata[meta_key] = rewrite_path_to_persistent(metadata[meta_key], local_projects_root, persistent_projects)
+                if source_dest:
+                    metadata["source_video"] = source_dest
                 # Clip-level custom subtitle path juga ikut di-rewrite
                 for clip in job.get("clips", []):
                     if clip.get("custom_subtitle_path"):

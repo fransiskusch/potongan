@@ -685,7 +685,8 @@ def api_create_job(req: CreateJobRequest):
         req.aspect_ratio, req.caption_style, req.burn_subs, req.output_dir, req.quality,
         req.title.strip(), req.enable_broll, req.pexels_api_key.strip(), req.max_clips,
         req.custom_base_url.strip(), req.custom_model_name.strip(), req.is_gaming_video,
-        req.whisper_model, req.model, canvas_config=canvas_cfg, subtitle_config=req.subtitle_config
+        req.whisper_model, req.model, canvas_config=canvas_cfg, subtitle_config=req.subtitle_config,
+        save_source_to_drive=req.save_source_to_drive
     )
     return {"status": "success", "job_id": job_id}
 
