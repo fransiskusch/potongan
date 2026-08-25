@@ -27,6 +27,21 @@ const STORAGE_STEP_KEY = "ac_wizard_current_step";
 const STORAGE_JOB_MODE_KEY = "ac_active_job_mode";
 type JobMode = "manual" | "ai";
 
+function getSteps(isManualMode: boolean) {
+  return isManualMode
+    ? [
+        { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
+        { num: 2 as WizardStep, label: "AI Prompt", desc: "Transcribe" },
+        { num: 3 as WizardStep, label: "Highlights", desc: "Paste JSON" },
+        { num: 4 as WizardStep, label: "Export", desc: "Render & Download" },
+      ]
+    : [
+        { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
+        { num: 2 as WizardStep, label: "AI Processing", desc: "Transcribe & Pick" },
+        { num: 3 as WizardStep, label: "Export", desc: "Render & Download" },
+      ];
+}
+
 function MainWizard() {
   const { provider } = useAISettings();
   const isManualMode = provider === "manual_ai";
@@ -70,7 +85,7 @@ function MainWizard() {
     stopPolling,
     startPolling,
   } = useJobPolling();
-  const wizardIsManual = jobId ? (jobMode ?? isManualMode) : isManualMode;
+  const wizardIsManual = jobId ? (jobMode ? jobMode === "manual" : isManualMode) : isManualMode;
 
   // Save current step to localStorage
   useEffect(() => {
@@ -177,18 +192,7 @@ function MainWizard() {
     }
   };
 
-  const STEPS_CONFIG = wizardIsManual
-    ? [
-        { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
-        { num: 2 as WizardStep, label: "AI Prompt", desc: "Transcribe" },
-        { num: 3 as WizardStep, label: "Highlights", desc: "Paste JSON" },
-        { num: 4 as WizardStep, label: "Export", desc: "Render & Download" },
-      ]
-    : [
-        { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
-        { num: 2 as WizardStep, label: "AI Processing", desc: "Transcribe & Pick" },
-        { num: 3 as WizardStep, label: "Export", desc: "Render & Download" },
-      ];
+  const STEPS_CONFIG = getSteps(wizardIsManual);
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 antialiased py-6 sm:py-10 px-4 sm:px-6 lg:px-8 selection:bg-amber-400 selection:text-neutral-950">

@@ -15,7 +15,8 @@ Verification:
 
 Commit:
 
-- `feat: adaptive wizard (3-step AI / 4-step manual)`
+- `ba3cb96 feat: adaptive wizard (3-step AI / 4-step manual)`
+- Follow-up: extracted `getSteps(mode)` helper required by Task 14 interface.
 
 Concerns:
 
