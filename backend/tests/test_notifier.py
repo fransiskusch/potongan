@@ -63,3 +63,28 @@ def test_notify_job_finished_error_sends_message(monkeypatch):
         notify_job_finished("job-2", "ERROR", job, {"title": "X"})
         assert mock_send.called
         assert "ERROR" in mock_send.call_args.args[0]
+
+
+def test_notify_job_finished_ignores_unknown_status(monkeypatch):
+    _env(monkeypatch)
+    with patch("backend.notifier.send_telegram_message") as mock_send, \
+         patch("backend.notifier.threading.Thread") as mock_thread:
+        notify_job_finished("job-3", "RUNNING", {"title": "X"}, {"title": "X"})
+        mock_send.assert_not_called()
+        mock_thread.assert_not_called()
+
+
+def test_notify_job_finished_truncates_oversized_message(monkeypatch):
+    _env(monkeypatch)
+    monkeypatch.setenv("AUTO_CLIPPER_PUBLIC_BASE_URL", "https://example.com/" + "b" * 2000)
+    job = {
+        "title": "Job " + "t" * 6000,
+        "clips": [{"path": "/tmp/" + "clip" * 1000 + ".mp4"}],
+        "failed": 0,
+    }
+    with patch("backend.notifier.send_telegram_message") as mock_send, \
+         patch("backend.notifier.threading.Thread", side_effect=lambda target, daemon: type("T", (), {"start": target})()):
+        notify_job_finished("job-4", "DONE", job, {"title": job["title"], "duration_seconds": 60})
+        text = mock_send.call_args.args[0]
+        assert len(text) <= 4096
+        assert "Klip: 1 berhasil" in text

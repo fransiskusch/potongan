@@ -42,6 +42,9 @@ def send_telegram_message(text: str, bot_token: str, chat_id: str) -> bool:
 
 
 def notify_job_finished(job_id: str, status: str, job: dict, metadata: dict) -> None:
+    if status not in {"DONE", "ERROR"}:
+        return
+
     bot_token = _bot_token()
     chat_id = _chat_id()
     if not bot_token or not chat_id:
@@ -76,17 +79,25 @@ def notify_job_finished(job_id: str, status: str, job: dict, metadata: dict) -> 
 
     text = "\n".join(lines)
     if len(text) > MAX_MESSAGE_LEN:
-        keep = max(0, len(clips) - (len(text) - MAX_MESSAGE_LEN) // 60)
-        lines = lines[:6] + [f"\U0001f4e5 Unduh klip ({keep} pertama):"]
-        for index, clip in enumerate(clips[:keep], start=1):
+        title_line = lines[1]
+        if len(title_line) > 500:
+            title_line = title_line[:497] + "..."
+        lines = [lines[0], title_line, lines[2], lines[3], lines[4], ""]
+        lines.append("\U0001f4e5 Unduh klip:")
+        footer = "\n\u23f3 Link aktif selama backend Colab menyala."
+        for index, clip in enumerate(clips, start=1):
             name = os.path.basename(clip.get("path", "")) or f"clip_{index}"
             path = quote(str(clip.get("path", "")), safe="")
-            lines.append(f"{index}. {name} — {base_url}/video?path={path}")
-        lines.extend([
-            f"…dan {len(clips) - keep} klip lainnya, buka web untuk melihat semua.",
-            "\u23f3 Link aktif selama backend Colab menyala.",
-        ])
+            line = f"{index}. {name} — {base_url}/video?path={path}"
+            if len("\n".join(lines + [line]) + footer) > MAX_MESSAGE_LEN:
+                break
+            lines.append(line)
+        if len(lines) - 7 < len(clips):
+            lines.append(f"…dan {len(clips) - (len(lines) - 7)} klip lainnya, buka web untuk melihat semua.")
+        lines.append("\u23f3 Link aktif selama backend Colab menyala.")
         text = "\n".join(lines)
+        if len(text) > MAX_MESSAGE_LEN:
+            text = text[: MAX_MESSAGE_LEN - 3] + "..."
 
     def _send(*_args) -> None:
         try:
