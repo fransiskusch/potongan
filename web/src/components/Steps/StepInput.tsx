@@ -44,7 +44,14 @@ const GDriveBrowserModal: React.FC<{
 
   useEffect(() => {
     if (isOpen) {
+      setSearchQuery("");
+      setSearchResults(null);
+      setError(null);
       fetchDir(currentPath);
+    } else {
+      setSearchQuery("");
+      setSearchResults(null);
+      setError(null);
     }
   }, [isOpen, currentPath]);
 
@@ -85,14 +92,14 @@ const GDriveBrowserModal: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn" role="dialog" aria-modal="true" aria-labelledby="gdrive-browser-title">
       <div className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between p-4 border-b border-neutral-800">
           <div className="flex items-center gap-2">
             <HardDrive className="w-5 h-5 text-amber-400" />
-            <h3 className="font-semibold text-neutral-100">Browse Google Drive</h3>
+            <h3 id="gdrive-browser-title" className="font-semibold text-neutral-100">Browse Google Drive</h3>
           </div>
-          <button type="button" onClick={onClose} className="p-1 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800 transition-colors">
+          <button type="button" onClick={onClose} aria-label="Close Google Drive browser" className="p-1 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800 transition-colors">
             <XCircle className="w-5 h-5" />
           </button>
         </div>
@@ -101,7 +108,7 @@ const GDriveBrowserModal: React.FC<{
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearch(); } }}
             placeholder="Search videos in Drive..."
             aria-label="Search videos in Google Drive"
             className="flex-1 px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-lg text-neutral-200 text-sm focus:outline-none focus:border-amber-400/80"

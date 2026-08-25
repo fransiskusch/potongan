@@ -7,3 +7,4 @@
 - Browse navigation and existing browse item renderer preserved.
 - Build: `cd web && npm run build` passed.
 - Diff check: `git diff --check` passed.
+- Follow-up fixes: Enter prevents default; search state resets on modal close/reopen; dialog semantics and close-label accessibility added.
