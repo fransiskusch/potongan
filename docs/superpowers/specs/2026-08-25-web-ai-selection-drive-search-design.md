@@ -1,8 +1,8 @@
-# Web AI Engine Selection + Drive Search — Design Spec
+# Web AI Engine Selection + Drive Search + Source Sync & Telegram Notif — Design Spec
 
 **Tanggal:** 2026-08-25
 **Status:** Approved (design approved per-section by user)
-**Terkait:** `docs/superpowers/specs/2025-11-15-colab-t4-drive-vercel-face-tracking-design.md` (Workstream C — UI/UX)
+**Terkait:** `docs/superpowers/specs/2025-11-15-colab-t4-drive-vercel-face-tracking-design.md` (Workstream A & C)
 
 ## Latar Belakang
 
@@ -19,9 +19,16 @@ Namun UI web (Vercel) saat ini:
    memakai AI otomatis (mis. gateway 9router milik pengguna) dari web;
    hanya mode copy-paste prompt manual.
 2. Hanya bisa browse folder Drive per folder — tidak ada pencarian video.
+3. Video sumber hasil download tidak disimpan ke Drive — hilang saat
+   session mati, dan path history menunjuk path Drive yang tidak ada
+   (re-render dari history gagal setelah session restart).
+4. Tidak ada notifikasi saat job selesai di luar web (user harus
+   memantau polling web).
 
 Tujuan spec ini: (1) expose pemilihan AI provider/model/API key di web UI
-(mirror dari Settings desktop), (2) tambah search video di Google Drive.
+(mirror dari Settings desktop), (2) tambah search video di Google Drive,
+(3) opsi simpan video sumber ke Drive, (4) notifikasi Telegram saat job
+selesai/gagal beserta link unduh klip.
 
 ## Keputusan Pengguna
 
@@ -36,6 +43,13 @@ Tujuan spec ini: (1) expose pemilihan AI provider/model/API key di web UI
   os.walk di Drive yang sudah ter-mount).
 - Pendekatan UI: **Opsi B — Settings modal terpusat** + chip ringkasan di
   StepInput + search bar di modal Drive.
+- Wizard: **adaptif per mode** — 3 step (mode AI otomatis) / 4 step
+  (mode manual); JSON highlight AI tidak pernah muncul ke pengguna di
+  mode otomatis.
+- Simpan source ke Drive: **toggle per-job di web, default ON**.
+- Notif Telegram: **teks + link unduh** (tanpa file terlampir), dikirim
+  **hanya saat DONE/ERROR**, konfigurasi via **form notebook Colab**
+  (env var), bukan web UI.
 
 ## 1. AI Engine Selection (Settings Modal)
 
@@ -182,6 +196,111 @@ hands-free (bisa jadi fitur masa depan terpisah).
 - Tidak ada perubahan pipeline render/subtitle → tidak perlu test
   tambahan untuk crop/subtitle.
 
+## 6. Simpan Video Sumber ke Drive
+
+### Latar
+
+Fase 1 (by design) hanya menyinkronkan `clips/` + `subtitles/` ke Drive;
+video sumber tetap di disk Colab dan hilang saat session mati. Namun
+`_finalize_job` me-rewrite path `source_video` di metadata ke path Drive
+— file yang tidak pernah disalin — sehingga re-render dari history gagal
+setelah session mati ("Video sumber tidak ditemukan"). Fitur ini
+sekaligus menutup gap tersebut.
+
+### Perubahan
+
+- **Web Step 1**: checkbox baru **"Simpan video sumber ke Drive"**
+  (default **ON**) → field `save_source_to_drive: bool = true` di
+  payload `POST /jobs` (Pydantic `CreateJobRequest` + model job).
+- **Backend** `cloud_sync.py`: fungsi baru
+  `sync_source_to_persistent(local_project_dir)` — salin
+  `source/source_video.mp4` ke
+  `Drive/AutoClipperData/projects/<judul>/source/source_video.mp4`.
+- **`_finalize_job`** (jobs.py): setelah sync clips/subtitles, jika
+  `save_source_to_drive` → sync source. Path rewrite `source_video`
+  kini menunjuk file yang benar-benar ada di Drive → re-render dari
+  history tetap berfungsi setelah session restart (untuk job dengan
+  toggle ON).
+- **Sumber `local:` (upload/Drive picker)**: tidak diduplikasi — file
+  sudah berada di sisi user/Drive; path rewrite cukup.
+- **Error handling**: gagal copy (mis. Drive penuh) → `log_error`, job
+  tetap DONE, notif Telegram menyertakan peringatan "source video
+  tidak tersimpan ke Drive".
+
+## 7. Notifikasi Telegram
+
+### Modul baru: `backend/notifier.py`
+
+Satu tanggung jawab: mengirim pesan Telegram (best-effort).
+
+- `send_telegram_message(text, bot_token, chat_id)` — POST
+  `https://api.telegram.org/bot<token>/sendMessage`.
+- `notify_job_finished(job_id, status, job, metadata)` — format pesan
+  + kirim; dipanggil dari `_finalize_job` saat status `DONE` atau
+  `ERROR` (bukan CANCELLED/AWAITING_MANUAL), dijalankan di thread
+  terpisah agar tidak memperlambat finalize.
+
+### Aktivasi via form notebook Colab (sel 6)
+
+- Form field baru `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (default
+  kosong = notif off).
+- `colab_api.py` men-set env `AUTO_CLIPPER_TELEGRAM_BOT_TOKEN` +
+  `AUTO_CLIPPER_TELEGRAM_CHAT_ID`; `notifier.py` membaca env tersebut.
+- User membuat bot via @BotFather dan mengambil chat ID via
+  @userinfobot (dokumentasi singkat ditambahkan ke README).
+
+### Format pesan (teks + link unduh, tanpa file terlampir)
+
+```
+🎬 Potongan.id — Job Selesai
+📌 Judul: <judul proyek>
+✅ Status: DONE  (atau ❌ ERROR: <pesan singkat>)
+🎞 Klip: 5 berhasil, 0 gagal
+⏱ Durasi proses: 12 menit
+
+📥 Unduh klip:
+1. Judul_clip_1.mp4 — https://be-clipper.fransiskus.my.id/video?path=...&v=...
+2. ...
+
+⏳ Link aktif selama backend Colab menyala.
+```
+
+- Link = URL endpoint `/video` backend yang sudah ada (dipakai web
+  player) — diklik di Telegram langsung play/unduh.
+- Base URL tunnel dibaca dari env `AUTO_CLIPPER_PUBLIC_BASE_URL`
+  (di-set form Colab, default
+  `https://be-clipper.fransiskus.my.id`).
+
+### Error handling
+
+- Token/chat ID kosong → notif off, tanpa error.
+- Kirim gagal (token salah, jaringan) → `log_error`, tidak
+  menggagalkan job (best-effort).
+- Pesan > 4096 karakter → dipotong + "…dan N klip lainnya, buka web
+  untuk melihat semua".
+- Pesan menyatakan eksplisit bahwa link unduh hanya berlaku selama
+  session Colab aktif.
+
+## 8. Testing (tambahan)
+
+- **Unit test** `backend/tests/test_notifier.py` (mock `requests.post`):
+  sukses kirim, token kosong (tidak kirim), error jaringan (tidak
+  raise), pesan panjang (terpotong).
+- **Unit test** `sync_source_to_persistent`: file tersalin ke path
+  Drive yang benar; `save_source_to_drive=False` → tidak menyalin;
+  sumber `local:` tidak diduplikasi.
+- **Test integrasi ringan**: `_finalize_job` memanggil notifier saat
+  DONE/ERROR dan tidak memanggil saat CANCELLED/AWAITING_MANUAL (mock).
+
+## 9. Di Luar Scope (tambahan)
+
+- Upload file klip sebagai attachment Telegram (ditolak: 20-80 MB per
+  klip, upload lama dari Colab; link unduh cukup).
+- Notifikasi per fase transkripsi/render (ditolak: berisik; hanya
+  selesai/gagal sesuai keputusan user).
+- Konfigurasi Telegram via web UI (ditolak untuk sekarang: form Colab
+  cukup untuk single-user; token bot tidak perlu tersimpan di browser).
+
 ## 5. Di Luar Scope
 
 - Pipeline subtitle/highlight/render backend (sudah paritas desktop).
@@ -200,3 +319,5 @@ hands-free (bisa jadi fitur masa depan terpisah).
 | `getSteps(mode)` (App.tsx) | Hitung konfigurasi navigasi wizard per mode (3 step AI / 4 step manual) | — |
 | `GET /gdrive-search` | Search file video rekursif di MyDrive | Cloud Mode + Drive mount |
 | `apiSearchGDrive` | HTTP wrapper search Drive | api.ts |
+| `sync_source_to_persistent` | Salin source_video.mp4 ke Drive saat diminta | cloud_sync.py, env cloud mode |
+| `backend/notifier.py` | Format + kirim pesan Telegram (best-effort) | env token/chat ID, requests |
