@@ -91,7 +91,7 @@ Perilaku baru:
 | `backend/main.py` CORS | Daftar origin pindah ke env var `AUTO_CLIPPER_ALLOWED_ORIGINS` (comma-separated, dibaca saat startup). Regex lama tetap jadi default bila env kosong. Tambah `clip.fransiskus.my.id` & domain Vercel ke default. |
 | `web/src/api.ts` | Default `API_URL` hardcode diganti `https://be-clipper.fransiskus.my.id` (fallback bila `VITE_API_URL` tidak diset). |
 | `web/src/components/Steps/StepInput.tsx` | Tab input 3 mode: **Link** (URL — perilaku sekarang) · **Upload** (file picker + drag-drop + progress bar chunked) · **Drive** (modal browser Drive yang sudah ada). |
-| `Auto_Clipper_Colab.ipynb` | Sel baru: (1) verifikasi runtime T4 GPU dengan pesan error jelas bila bukan; (2) form field Cloudflare token + API token + allowed origins; (3) cek kesehatan tunnel (GET /health via tunnel URL); (4) sel cleanup disk opsional. |
+| `Auto_Clipper_Colab.ipynb` | Sel baru: (1) verifikasi runtime T4 GPU dengan pesan error jelas bila bukan; (2) form field Cloudflare token + API token + allowed origins; (3) cek kesehatan tunnel (GET /health via tunnel URL); (4) sel cleanup disk opsional; (5) **install font subtitle** — download TTF font yang dipakai FontSelector web UI (Anton, Bebas Neue, Montserrat, Oswald, Poppins, Permanent Marker, Impact-substitute) dari Google Fonts ke `/usr/share/fonts/truetype/custom/` + `fc-cache -f`, agar libass/FFmpeg tidak diam-diam fallback ke font default saat render (bug laten: font hanya dimuat di browser, tidak di VM Colab). |
 | `README.md` | Opsi 5 ditulis ulang: Cloudflare (bukan NGROK), alur upload chunked + browser Drive + domain baru. |
 | `docs/cloud-architecture-plan.md` | Domain lama diganti domain baru; tambahkan bagian upload chunked & workspace terpisah (atau tandai sebagai superseded oleh spec ini). |
 
@@ -239,3 +239,15 @@ Apache-2.0.
 - Upload persisten ke Drive (file upload hanya di disk lokal Colab, hilang
   saat session mati — hasil klip tetap disalin ke Drive).
 - Multi-user / autentikasi lanjutan (tetap single static token).
+
+## Lampiran: kustomisasi subtitle (status quo — tidak diubah)
+
+Web UI sudah mendukung: 3 style (standard / karaoke / single-word pop),
+3 preset (Viral Pop / Podcast / Classic), 8 pilihan font, 4 warna custom
+(highlight/teks/outline/shadow), scale ukuran, bold/italic/uppercase,
+outline width, shadow depth, animasi pop, watermark teks + opacity, edit
+teks manual + rerender per-klip. Semua sudah jalan di alur Colab.
+
+Satu-satunya celah — font tidak ter-install di VM Colab (libass fallback
+diam-diam) — ditutup lewat sel install font di notebook (lihat tabel
+Workstream A). Tidak ada perubahan API subtitle.
