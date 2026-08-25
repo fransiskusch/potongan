@@ -118,7 +118,7 @@ def detect_primary_face_center(video_path: str, start_time=None, end_time=None) 
     return center
 
 
-def sample_face_trajectory(video_path: str, start_time: float, end_time: float, interval: float = 0.5, should_cancel = None) -> list[tuple[float, float]]:
+def _sample_face_trajectory_haar(video_path: str, start_time: float, end_time: float, interval: float = 0.5, should_cancel = None) -> list[tuple[float, float]]:
     """Sample face positions at periodic intervals across a clip window.
 
     Returns a list of (relative_time_s, x_center_ratio) tuples.
@@ -208,6 +208,11 @@ def sample_face_trajectory(video_path: str, start_time: float, end_time: float, 
     return trajectory if trajectory else [(0.0, 0.5)]
 
 
+def sample_face_trajectory(video_path: str, start_time: float, end_time: float, interval: float = 0.5, should_cancel=None) -> list[tuple[float, float]]:
+    from backend import face_tracker
+    return face_tracker.sample_face_trajectory(video_path, start_time, end_time, interval=interval, should_cancel=should_cancel)
+
+
 def smooth_trajectory(trajectory: list[tuple[float, float]], alpha: float = 0.25) -> list[tuple[float, float]]:
     """Smooth a time-series of (t, x) coordinates using Exponential Moving Average (EMA)."""
     if not trajectory:
@@ -248,6 +253,11 @@ def apply_deadband_filter(raw_trajectory: list[tuple[float, float]], deadband: f
 
 
 def detect_video_layout(video_path: str, start_time=None, end_time=None, samples: int = 12, should_cancel=None) -> dict:
+    from backend import face_tracker
+    return face_tracker.detect_video_layout(video_path, start_time=start_time, end_time=end_time, samples=samples, should_cancel=should_cancel)
+
+
+def _detect_video_layout_haar(video_path: str, start_time=None, end_time=None, samples: int = 12, should_cancel=None) -> dict:
     """Classify a video as gaming split-screen vs. a standard centred crop.
 
     Samples a *fixed* number of frames spread across the window. Detects all faces,
