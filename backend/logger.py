@@ -5,6 +5,12 @@ import sys
 from typing import Optional, Union
 
 def get_app_data_dir() -> str:
+    local_ws = os.environ.get("AUTO_CLIPPER_LOCAL_WORKDIR", "").strip()
+    if local_ws:
+        local_ws = os.path.abspath(os.path.expanduser(local_ws))
+        os.makedirs(local_ws, exist_ok=True)
+        return local_ws
+
     custom_ws = os.environ.get("AUTO_CLIPPER_WORKSPACE", "").strip()
     if custom_ws:
         custom_ws = os.path.abspath(os.path.expanduser(custom_ws))
@@ -18,7 +24,7 @@ def get_app_data_dir() -> str:
         base = os.path.join(home, "Library", "Application Support")
     else:
         base = os.environ.get("XDG_DATA_HOME", os.path.join(home, ".local", "share"))
-    
+
     app_dir = os.path.join(base, "AutoClipper")
     os.makedirs(app_dir, exist_ok=True)
     return app_dir

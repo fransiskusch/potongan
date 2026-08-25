@@ -18,6 +18,7 @@ from typing import List, Optional
 
 
 DEFAULT_WORKSPACE = "/content/drive/MyDrive/AutoClipperData"
+DEFAULT_LOCAL_WORKDIR = "/content/projects"
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
 
@@ -69,25 +70,91 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=env_port,
         help=f"Port to bind uvicorn server (default: {DEFAULT_PORT})",
     )
+    env_local_workdir = os.environ.get("AUTO_CLIPPER_LOCAL_WORKDIR") or DEFAULT_LOCAL_WORKDIR
+    parser.add_argument(
+        "--local-workdir",
+        dest="local_workdir",
+        default=env_local_workdir,
+        help=f"Fast local working directory for downloads/renders (default: {DEFAULT_LOCAL_WORKDIR})",
+    )
 
     return parser.parse_args(args)
 
 
-def setup_environment(workspace: str, api_token: Optional[str] = None) -> None:
-    """Configure environment variables for cloud mode and prepare workspace directory."""
+def setup_environment(workspace: str, api_token: Optional[str] = None, local_workdir: Optional[str] = None) -> None:
+    """Configure environment variables for cloud mode and prepare directories."""
     os.environ["AUTO_CLIPPER_CLOUD_MODE"] = "1"
     os.environ["AUTO_CLIPPER_WORKSPACE"] = workspace
+    os.environ["AUTO_CLIPPER_LOCAL_WORKDIR"] = local_workdir or DEFAULT_LOCAL_WORKDIR
 
     if api_token:
         os.environ["AUTO_CLIPPER_DEV_TOKEN"] = api_token
         os.environ["AUTO_CLIPPER_WEB_TOKEN"] = api_token
         os.environ["API_SECRET_TOKEN"] = api_token
 
+    for d in (workspace, os.environ["AUTO_CLIPPER_LOCAL_WORKDIR"]):
+        try:
+            os.makedirs(d, exist_ok=True)
+            print(f"[Auto Clipper Colab] Directory initialized: {d}")
+        except Exception as e:
+            print(f"[Auto Clipper Colab] Warning: Could not create directory '{d}': {e}", file=sys.stderr)
+
+
+def verify_gpu(require_t4: bool = True) -> tuple:
+    """Verify a CUDA GPU is available; warn (not crash) if it is not a T4."""
     try:
-        os.makedirs(workspace, exist_ok=True)
-        print(f"[Auto Clipper Colab] Workspace directory initialized at: {workspace}")
-    except Exception as e:
-        print(f"[Auto Clipper Colab] Warning: Could not create workspace directory '{workspace}': {e}", file=sys.stderr)
+        import torch
+    except Exception:
+        return (False, "torch is not installed or importable")
+    if torch is None:
+        return (False, "torch is not installed or importable")
+    if not torch.cuda.is_available():
+        return (False, "CUDA is not available — pilih Runtime > Change runtime type > T4 GPU")
+    try:
+        name = torch.cuda.get_device_name(0)
+    except Exception:
+        name = ""
+    if require_t4 and "T4" not in name:
+        return (True, f"GPU terdeteksi ({name}) tetapi bukan T4 — disarankan T4")
+    return (True, f"GPU OK: {name}")
+
+
+def check_tunnel_health(tunnel_url: str, timeout: float = 5.0) -> bool:
+    """GET <tunnel_url>/health; True jika merespons."""
+    if not tunnel_url:
+        return False
+    try:
+        import requests
+
+        r = requests.get(tunnel_url.rstrip("/") + "/health", timeout=timeout)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def cleanup_stale_uploads(uploads_dir: str, max_age_hours: float = 24.0) -> int:
+    """Delete upload files older than max_age_hours. Returns deleted count."""
+    if not uploads_dir or not os.path.isdir(uploads_dir):
+        return 0
+    import time
+
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    for root, dirs, files in os.walk(uploads_dir, topdown=False):
+        for name in files:
+            p = os.path.join(root, name)
+            try:
+                if os.path.getmtime(p) < cutoff:
+                    os.remove(p)
+                    removed += 1
+            except Exception:
+                pass
+        for name in dirs:
+            try:
+                os.rmdir(os.path.join(root, name))
+            except Exception:
+                pass
+    return removed
 
 
 def start_uvicorn(host: str, port: int) -> subprocess.Popen:
@@ -178,7 +245,17 @@ def run_server(args: Optional[List[str]] = None) -> int:
     """Main execution loop for Colab entrypoint."""
     parsed = parse_args(args)
 
-    setup_environment(parsed.workspace, parsed.api_token)
+    setup_environment(parsed.workspace, parsed.api_token, local_workdir=parsed.local_workdir)
+
+    ok_gpu, gpu_msg = verify_gpu()
+    print(f"[Auto Clipper Colab] GPU check: {'OK' if ok_gpu else 'FAILED'} — {gpu_msg}")
+    if not ok_gpu:
+        print("[Auto Clipper Colab] ERROR: GPU tidak tersedia. Set Runtime > Change runtime type > T4 GPU, lalu jalankan ulang.", file=sys.stderr)
+        return 1
+
+    removed = cleanup_stale_uploads(os.path.join(parsed.local_workdir, "uploads"))
+    if removed:
+        print(f"[Auto Clipper Colab] Cleaned {removed} stale upload file(s).")
 
     running_procs: List[subprocess.Popen] = []
     shutdown_initiated = False

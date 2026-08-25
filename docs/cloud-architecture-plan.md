@@ -1,10 +1,12 @@
 # Auto Clipper Cloud — Vercel + Google Colab
 
+> **Superseded:** Desain operasional terbaru ada di docs/superpowers/specs/2025-11-15-colab-t4-drive-vercel-face-tracking-design.md (Potongan.id Cloud v2).
+
 Transisi Auto Clipper dari Aplikasi Desktop (Tauri) menjadi **Mobile Web App** yang bisa diakses dari browser HP, dengan backend berjalan di GPU Google Colab secara gratis.
 
 **Domain:**
-- Frontend (Vercel): `clipper.dhims.web.id`
-- Backend (Cloudflare Tunnel → Colab): `be-clipper.dhims.web.id`
+- Frontend (Vercel): `clip.fransiskus.my.id`
+- Backend (Cloudflare Tunnel → Colab): `be-clipper.fransiskus.my.id`
 
 ---
 
@@ -31,10 +33,10 @@ Transisi Auto Clipper dari Aplikasi Desktop (Tauri) menjadi **Mobile Web App** y
 ```mermaid
 graph LR
     subgraph HP["📱 HP (Browser)"]
-        FE["clipper.dhims.web.id<br/>(Vercel - React)"]
+        FE["clip.fransiskus.my.id<br/>(Vercel - React)"]
     end
     subgraph CF["☁️ Cloudflare"]
-        TUN["Tunnel<br/>be-clipper.dhims.web.id"]
+        TUN["Tunnel<br/>be-clipper.fransiskus.my.id"]
     end
     subgraph COLAB["🖥️ Google Colab (GPU)"]
         API["FastAPI<br/>(colab_api.py)"]
@@ -127,7 +129,7 @@ Dengan ini, saat dijalankan di Colab dengan `AUTO_CLIPPER_WORKSPACE=/content/dri
 ```python
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://([a-zA-Z0-9_.-]+\.)?localhost(:\d+)?|https?://127\.0\.0\.1(:\d+)?|tauri://.*|app://.*|https://clipper\.dhims\.web\.id",
+    allow_origin_regex=r"https?://([a-zA-Z0-9_.-]+\.)?localhost(:\d+)?|https?://127\.0\.0\.1(:\d+)?|tauri://.*|app://.*|https://clip\.fransiskus\.my\.id",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -270,7 +272,7 @@ web/
 └── src/
     ├── main.tsx
     ├── App.tsx              # Single-page wizard (4 steps)
-    ├── api.ts               # HTTP client ke be-clipper.dhims.web.id
+    ├── api.ts               # HTTP client ke be-clipper.fransiskus.my.id
     ├── types/
     │   ├── subtitle.ts      # Re-export dari ../../src/types/subtitle.ts (atau copy)
     │   └── canvas.ts        # Re-export dari ../../src/types/canvas.ts (atau copy)
@@ -351,7 +353,7 @@ Menampilkan prompt yang sudah di-generate backend (`job.metadata.manual_prompt`)
 ##### `StepResult.tsx` — Preview & Download
 
 Menampilkan daftar klip yang sudah jadi:
-- Video player inline (`<video>` tag, src = `https://be-clipper.dhims.web.id/video?path=...`)
+- Video player inline (`<video>` tag, src = `https://be-clipper.fransiskus.my.id/video?path=...`)
 - Tombol **Download** per klip (menggunakan `<a download>` atau `fetch` + `blob`)
 - Info deskripsi klip (dari JSON AI)
 
@@ -360,7 +362,7 @@ Menampilkan daftar klip yang sudah jadi:
 #### `api.ts` — HTTP Client
 
 ```typescript
-const API_BASE = "https://be-clipper.dhims.web.id";
+const API_BASE = "https://be-clipper.fransiskus.my.id";
 
 async function apiFetch(path: string, options?: RequestInit) {
   const token = localStorage.getItem("ac_web_token") || "";
@@ -394,7 +396,7 @@ async function apiFetch(path: string, options?: RequestInit) {
 2. Buat tunnel baru: `colab-clipper`.
 3. Tambahkan **Public Hostname**:
    - Subdomain: `be-clipper`
-   - Domain: `dhims.web.id`
+   - Domain: `fransiskus.my.id`
    - Service: `http://localhost:8000`
 4. Salin **Tunnel Token** → tempel di Cell 3 notebook Colab.
 
@@ -403,8 +405,8 @@ async function apiFetch(path: string, options?: RequestInit) {
 1. Import repo `DhimasPH/auto-clipper` ke Vercel.
 2. Set **Root Directory** ke `web`.
 3. Framework Preset: `Vite`.
-4. Environment Variable: `VITE_API_URL` = `https://be-clipper.dhims.web.id`.
-5. Custom Domain: `clipper.dhims.web.id`.
+4. Environment Variable: `VITE_API_URL` = `https://be-clipper.fransiskus.my.id`.
+5. Custom Domain: `clip.fransiskus.my.id`.
 
 ---
 
@@ -445,7 +447,7 @@ cd backend && pytest tests/
 
 1. **Backend di Colab:**
    - Jalankan notebook di Google Colab.
-   - Verifikasi `be-clipper.dhims.web.id/health` merespons `{"status": "ok"}`.
+   - Verifikasi `be-clipper.fransiskus.my.id/health` merespons `{"status": "ok"}`.
    - Verifikasi `history.db` terbentuk di Google Drive.
    - Test endpoint `POST /jobs/manual` dengan URL YouTube pendek (< 2 menit).
 
@@ -455,11 +457,11 @@ cd backend && pytest tests/
    - Test full flow: URL → Transcribe → Copy Prompt → Paste JSON → Render → Download.
 
 3. **Frontend di Vercel:**
-   - Deploy ke `clipper.dhims.web.id`.
+   - Deploy ke `clip.fransiskus.my.id`.
    - Test full flow dari browser HP sungguhan.
    - Verifikasi: tutup browser → buka lagi → job masih terlihat.
 
 4. **Security:**
-   - Akses `be-clipper.dhims.web.id/history` tanpa token → harus dapat `401 Unauthorized`.
+   - Akses `be-clipper.fransiskus.my.id/history` tanpa token → harus dapat `401 Unauthorized`.
    - Akses dengan token salah → harus dapat `401`.
    - Akses dengan token benar → harus dapat data.
