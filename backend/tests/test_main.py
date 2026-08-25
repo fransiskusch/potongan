@@ -18,7 +18,7 @@ def test_cors_headers():
         "http://localhost:5173",
         "http://127.0.0.1:8000",
         "app://localhost",
-        "https://clipper.dhims.web.id",
+        "https://clip.fransiskus.my.id",
     ]
     for origin in allowed_origins:
         r = client.get("/health", headers={"Origin": origin})
@@ -243,6 +243,21 @@ def test_get_words_endpoint(tmp_path, monkeypatch):
     assert res.status_code == 200
     assert len(res.json()["words"]) == 2
     assert res.json()["words"][0]["word"] == "Hello"
+
+
+def test_cors_env_var_overrides_origins(monkeypatch):
+    from backend.main import _resolve_cors_origins
+    monkeypatch.setenv("AUTO_CLIPPER_ALLOWED_ORIGINS", "https://clip.fransiskus.my.id,https://potongan.vercel.app")
+    origins = _resolve_cors_origins()
+    assert "https://clip.fransiskus.my.id" in origins
+    assert "https://potongan.vercel.app" in origins
+
+
+def test_cors_default_includes_new_domain(monkeypatch):
+    monkeypatch.delenv("AUTO_CLIPPER_ALLOWED_ORIGINS", raising=False)
+    from backend.main import _resolve_cors_origins
+    origins = _resolve_cors_origins()
+    assert "https://clip.fransiskus.my.id" in origins
 
 
 def test_post_rerender_clip_endpoint(monkeypatch):

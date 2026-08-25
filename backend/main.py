@@ -93,10 +93,22 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"status": "error", "message": f"Internal Server Error: {str(exc)}"}
     )
 
+_DEFAULT_CORS_ORIGINS = [
+    "https://clip.fransiskus.my.id",
+]
+
+def _resolve_cors_origins() -> list:
+    """Origin list dari AUTO_CLIPPER_ALLOWED_ORIGINS (comma-separated); default bila kosong."""
+    raw = os.environ.get("AUTO_CLIPPER_ALLOWED_ORIGINS", "").strip()
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    return list(_DEFAULT_CORS_ORIGINS)
+
 app.add_middleware(
     CORSMiddleware,
-    # Allow local dev and all variations of Tauri custom protocols (including tauri.localhost on Windows), plus cloud web app
-    allow_origin_regex=r"https?://([a-zA-Z0-9_.-]+\.)?localhost(:\d+)?|https?://127\.0\.0\.1(:\d+)?|tauri://.*|app://.*|https://clipper\.dhims\.web\.id",
+    # Local dev + Tauri custom protocols via regex; cloud origins via env list.
+    allow_origin_regex=r"https?://([a-zA-Z0-9_.-]+\.)?localhost(:\d+)?|https?://127\.0\.0\.1(:\d+)?|tauri://.*|app://.*",
+    allow_origins=_resolve_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
