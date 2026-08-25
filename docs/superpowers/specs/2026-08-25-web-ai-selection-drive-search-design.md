@@ -1,8 +1,8 @@
-# Web AI Engine Selection + Drive Search + Source Sync & Telegram Notif — Design Spec
+# Web AI Engine Selection + Drive Search + Source Sync + Telegram Notif + Face Tracking — Design Spec
 
 **Tanggal:** 2026-08-25
 **Status:** Approved (design approved per-section by user)
-**Terkait:** `docs/superpowers/specs/2025-11-15-colab-t4-drive-vercel-face-tracking-design.md` (Workstream A & C)
+**Terkait:** `docs/superpowers/specs/2025-11-15-colab-t4-drive-vercel-face-tracking-design.md` (Workstream A, B & C — Workstream B digabung ke sini)
 
 ## Latar Belakang
 
@@ -50,6 +50,9 @@ selesai/gagal beserta link unduh klip.
 - Notif Telegram: **teks + link unduh** (tanpa file terlampir), dikirim
   **hanya saat DONE/ERROR**, konfigurasi via **form notebook Colab**
   (env var), bukan web UI.
+- Face tracking: **digabung dari spec besar (Workstream B / Fase 3)** —
+  MediaPipe + Dominant Face Lock, **tanpa setting user-facing baru**
+  (kualitas naik via default yang lebih baik).
 
 ## 1. AI Engine Selection (Settings Modal)
 
@@ -179,7 +182,7 @@ auto melewati Step 3 — ditolak karena step "hantu" membingungkan;
 karena menambah interaksi manual padahal tujuan mode auto adalah
 hands-free (bisa jadi fitur masa depan terpisah).
 
-## 4. Testing
+## 4. Testing (AI selection & Drive search)
 
 - **Backend unit test** `backend/tests/test_gdrive_search.py`:
   tmp_path berisi file dummy (.mp4/.txt) + folder nested; assert filter
@@ -196,7 +199,7 @@ hands-free (bisa jadi fitur masa depan terpisah).
 - Tidak ada perubahan pipeline render/subtitle → tidak perlu test
   tambahan untuk crop/subtitle.
 
-## 6. Simpan Video Sumber ke Drive
+## 5. Simpan Video Sumber ke Drive
 
 ### Latar
 
@@ -227,7 +230,7 @@ sekaligus menutup gap tersebut.
   tetap DONE, notif Telegram menyertakan peringatan "source video
   tidak tersimpan ke Drive".
 
-## 7. Notifikasi Telegram
+## 6. Notifikasi Telegram
 
 ### Modul baru: `backend/notifier.py`
 
@@ -281,7 +284,7 @@ Satu tanggung jawab: mengirim pesan Telegram (best-effort).
 - Pesan menyatakan eksplisit bahwa link unduh hanya berlaku selama
   session Colab aktif.
 
-## 8. Testing (tambahan)
+## 7. Testing (source sync & notifier)
 
 - **Unit test** `backend/tests/test_notifier.py` (mock `requests.post`):
   sukses kirim, token kosong (tidak kirim), error jaringan (tidak
@@ -292,22 +295,99 @@ Satu tanggung jawab: mengirim pesan Telegram (best-effort).
 - **Test integrasi ringan**: `_finalize_job` memanggil notifier saat
   DONE/ERROR dan tidak memanggil saat CANCELLED/AWAITING_MANUAL (mock).
 
-## 9. Di Luar Scope (tambahan)
+## 8. Face Tracking Modern (MediaPipe + Dominant Face Lock)
 
+> Port dari spec besar `2025-11-15-...` Workstream B / Fase 3 — sudah
+> disetujui sebelumnya. Digabung ke spec ini agar dikerjakan dalam satu
+> implementasi.
+
+### Akar masalah (Haar Cascade)
+
+`backend/crop_utils.py` memakai Haar Cascade untuk
+`sample_face_trajectory` / `detect_video_layout`:
+
+1. **Goyang/patah-patah** — Haar sering gagal deteksi (wajah menyamping,
+   gelap, kecil) → trajectory bolong → lompatan setelah forward-fill.
+2. **Salah orang** — kode mengambil wajah terbesar per frame tanpa
+   identitas → crop pindah ke orang salah.
+3. **Wajah terpotong** — false positive Haar membuat median position
+   meleset.
+
+### Solusi
+
+**Detektor: MediaPipe Face Detection (BlazeFace short-range)** — akurasi
+jauh di atas Haar, robust pose/pencahayaan, jalan di CPU Colab (GPU
+tetap untuk Whisper), Apache-2.0.
+
+**Algoritma Dominant Face Lock:**
+
+1. SCAN AWAL (~10 frame tersebar): deteksi semua wajah + skor.
+2. PILIH TARGET: wajah dengan skor konsistensi (kehadiran antar frame ×
+   ukuran × kedekatan posisi) tertinggi.
+3. TRACKING (tiap 0.25s): pilih deteksi dengan jarak centroid terkecil
+   ke posisi target terakhir (gating maks 25% lebar frame).
+   - Target hilang ≤ 5 detik → TAHAN posisi terakhir (hold).
+   - Hilang > 5 detik + wajah serupa muncul (IoU ≥ 0.3) → lanjutkan
+     track (orang sama).
+   - Hilang > 15 detik → re-scan penuh (pilih target baru).
+4. SMOOTHING: One-Euro filter (nol jitter saat diam, responsif saat
+   gerak cepat) → deadband 0.08 (dipertahankan) → clamp in-frame.
+5. OUTPUT: `list[(t, x)]` — format identik trajectory lama →
+   `build_dynamic_crop_filter` & lerp FFmpeg dipakai ulang tanpa
+   perubahan.
+
+### Integrasi & kompatibilitas
+
+- **Modul baru `backend/face_tracker.py`** — semua logika deteksi +
+  tracking terisolasi. Public API drop-in:
+  - `sample_face_trajectory(video_path, start, end, interval=0.25,
+    should_cancel)` → `list[(t, x)]`
+  - `detect_video_layout(video_path, ...)` → dict identik (mode
+    gaming/standard, face_box, face_center, face_area_ratio)
+  - Selector detektor internal: MediaPipe bila tersedia; fallback Haar.
+- **`crop_utils.py`**: `sample_face_trajectory` & `detect_video_layout`
+  didelegasikan ke `face_tracker`. Interface pemanggil di `jobs.py`
+  tidak berubah.
+- **Cloud (Colab)**: `mediapipe` ditambah ke requirements Colab
+  (install di notebook), aktif otomatis.
+- **Desktop**: tanpa mediapipe → jalur Haar lama tetap utuh (desktop
+  tidak dirusak).
+- Interval sampling 0.5s → 0.25s di cloud.
+
+### Error handling
+
+- MediaPipe gagal load di awal job → fallback per-job ke Haar, log
+  warning.
+- MediaPipe crash/error per frame → frame dianggap "tidak ada deteksi"
+  (hold logic menangani), tidak crash job.
+- Video tanpa wajah → fallback center 0.5 (perilaku lama).
+- `should_cancel` tetap dicek tiap iterasi sampling.
+
+### Testing
+
+- **Unit test `face_tracker`** (mock detector): wajah dominan diikuti
+  walau wajah kedua lebih besar di beberapa frame; hold saat hilang 3
+  detik; One-Euro responsif; clamp in-frame; output format identik
+  konsumen lama.
+- **Test regresi**: unit test crop_utils lama tetap lulus (interface
+  tidak berubah).
+- **Test manual Colab**: video 2 orang, wajah menyamping, gaming
+  facecam corner, video gelap.
+
+## 9. Di Luar Scope
+
+- Pipeline subtitle/highlight/render backend (sudah paritas desktop).
+- Upload chunked (Fase 2 spec besar, tetap terpisah).
+- Menyimpan API key di backend/Drive (ditolak: risiko key plaintext di
+  Drive; localStorage cukup untuk single-user).
 - Upload file klip sebagai attachment Telegram (ditolak: 20-80 MB per
   klip, upload lama dari Colab; link unduh cukup).
 - Notifikasi per fase transkripsi/render (ditolak: berisik; hanya
   selesai/gagal sesuai keputusan user).
 - Konfigurasi Telegram via web UI (ditolak untuk sekarang: form Colab
   cukup untuk single-user; token bot tidak perlu tersimpan di browser).
-
-## 5. Di Luar Scope
-
-- Pipeline subtitle/highlight/render backend (sudah paritas desktop).
-- Face tracking MediaPipe (Fase 3 spec besar, tetap terpisah).
-- Upload chunked (Fase 2 spec besar, tetap terpisah).
-- Menyimpan API key di backend/Drive (ditolak: risiko key plaintext di
-  Drive; localStorage cukup untuk single-user).
+- Setting tracking user-facing (deadband/alpha slider) — ditolak:
+  kualitas naik via default yang lebih baik, bukan slider teknis.
 
 ## Unit Interfaces (Ringkas)
 
@@ -321,3 +401,4 @@ Satu tanggung jawab: mengirim pesan Telegram (best-effort).
 | `apiSearchGDrive` | HTTP wrapper search Drive | api.ts |
 | `sync_source_to_persistent` | Salin source_video.mp4 ke Drive saat diminta | cloud_sync.py, env cloud mode |
 | `backend/notifier.py` | Format + kirim pesan Telegram (best-effort) | env token/chat ID, requests |
+| `backend/face_tracker.py` | Deteksi + tracking wajah (MediaPipe/BlazeFace + Dominant Face Lock, fallback Haar) | mediapipe, crop_utils |
