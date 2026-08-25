@@ -19,3 +19,9 @@ Tests:
 Concerns:
 - MediaPipe was not installed, so real MediaPipe frame processing was not exercised in this environment.
 - Existing Haar tests need an OpenCV build exposing `cv2.CascadeClassifier` to run.
+
+Cleanup fix:
+- Wrapped MediaPipe capture and detector ownership in `finally` blocks for both tracker functions.
+- Exceptions and cancellation now release `VideoCapture` and close detector before fallback or return.
+- Added two regression tests covering exception cleanup and preserved Haar fallback output.
+- `pytest backend/tests/test_face_tracker.py -v`: 9 passed.

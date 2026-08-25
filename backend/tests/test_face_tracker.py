@@ -1,4 +1,6 @@
-from unittest.mock import patch
+import sys
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 
 def test_sample_face_trajectory_returns_identity_format(monkeypatch):
@@ -69,3 +71,60 @@ def test_crop_utils_layout_wrapper_uses_private_haar_without_recursion(monkeypat
         result = crop_utils.detect_video_layout("clip.mp4", samples=4)
     assert result == expected
     haar.assert_called_once_with("clip.mp4", start_time=None, end_time=None, samples=4, should_cancel=None)
+
+
+def test_sample_mediapipe_failure_releases_capture_and_detector(monkeypatch):
+    import backend.face_tracker as tracker
+
+    cap = MagicMock(isOpened=lambda: True)
+    cap.get.side_effect = lambda prop: 640 if prop == 3 else 360
+    cap.read.return_value = (True, object())
+    detector = MagicMock()
+    detector.process.side_effect = RuntimeError("process failed")
+    cv2 = SimpleNamespace(
+        VideoCapture=MagicMock(return_value=cap),
+        CAP_PROP_FRAME_WIDTH=3,
+        CAP_PROP_FRAME_HEIGHT=4,
+        CAP_PROP_POS_MSEC=5,
+        cvtColor=MagicMock(return_value=object()),
+        COLOR_BGR2RGB=6,
+    )
+    monkeypatch.setattr(tracker, "_mediapipe_available", lambda: True)
+    monkeypatch.setattr(tracker, "_detector", lambda: detector)
+    with patch.dict(sys.modules, {"cv2": cv2}), patch.object(
+        tracker, "sample_face_trajectory_haar", return_value=[(0.0, 0.5)]
+    ) as haar:
+        result = tracker.sample_face_trajectory("clip.mp4", 0.0, 1.0)
+    assert result == [(0.0, 0.5)]
+    haar.assert_called_once()
+    cap.release.assert_called_once()
+    detector.close.assert_called_once()
+
+
+def test_layout_mediapipe_failure_releases_capture_and_detector(monkeypatch):
+    import backend.face_tracker as tracker
+
+    cap = MagicMock(isOpened=lambda: True)
+    cap.get.side_effect = lambda prop: 25.0 if prop == 5 else 25
+    cap.read.return_value = (True, object())
+    detector = MagicMock()
+    detector.process.side_effect = RuntimeError("process failed")
+    cv2 = SimpleNamespace(
+        VideoCapture=MagicMock(return_value=cap),
+        CAP_PROP_FPS=5,
+        CAP_PROP_FRAME_COUNT=7,
+        CAP_PROP_POS_MSEC=8,
+        cvtColor=MagicMock(return_value=object()),
+        COLOR_BGR2RGB=9,
+    )
+    monkeypatch.setattr(tracker, "_mediapipe_available", lambda: True)
+    monkeypatch.setattr(tracker, "_detector", lambda: detector)
+    expected = {"mode": "standard", "face_box": None, "face_area_ratio": 0.0, "face_center": (0.5, 0.5)}
+    with patch.dict(sys.modules, {"cv2": cv2}), patch.object(
+        tracker, "_detect_video_layout_haar", return_value=expected
+    ) as haar:
+        result = tracker.detect_video_layout("clip.mp4", samples=2)
+    assert result == expected
+    haar.assert_called_once()
+    cap.release.assert_called_once()
+    detector.close.assert_called_once()

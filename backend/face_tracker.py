@@ -84,11 +84,11 @@ def sample_face_trajectory_haar(video_path, start_time, end_time, interval=0.5, 
 def sample_face_trajectory(video_path: str, start_time: float, end_time: float, interval: float = 0.25, should_cancel=None) -> list[tuple[float, float]]:
     if not _mediapipe_available():
         return sample_face_trajectory_haar(video_path, start_time, end_time, interval=interval, should_cancel=should_cancel)
+    cap = detector = None
     try:
         import cv2
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            cap.release()
             return [(0.0, 0.5)]
         frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
         frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
@@ -111,24 +111,29 @@ def sample_face_trajectory(video_path: str, start_time: float, end_time: float, 
                     faces.append((box.xmin + box.width / 2, box.ymin + box.height / 2, box.width, box.height))
             x = filt(rel_t, lock.update(rel_t, faces) or 0.5)
             trajectory.append((rel_t, max(lo, min(hi, x)) if lo <= hi else x))
-        cap.release()
-        detector.close()
         return trajectory
     except Exception as exc:
         log_error("face_tracker.sample_face_trajectory", f"MediaPipe failed ({exc}); fallback to Haar.")
         return sample_face_trajectory_haar(video_path, start_time, end_time, interval=interval, should_cancel=should_cancel)
+    finally:
+        try:
+            if cap is not None:
+                cap.release()
+        finally:
+            if detector is not None:
+                detector.close()
 
 
 def detect_video_layout(video_path, start_time=None, end_time=None, samples: int = 12, should_cancel=None) -> dict:
     if not _mediapipe_available():
         return _detect_video_layout_haar(video_path, start_time=start_time, end_time=end_time, samples=samples, should_cancel=should_cancel)
+    cap = detector = None
     try:
         import cv2
         import statistics
         result = {"mode": "standard", "face_box": None, "face_area_ratio": 0.0, "face_center": (0.5, 0.5)}
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            cap.release()
             return result
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
@@ -152,8 +157,6 @@ def detect_video_layout(video_path, start_time=None, end_time=None, samples: int
                 cx, cy, area = box.xmin + box.width / 2, box.ymin + box.height / 2, box.width * box.height
                 if area < 0.25 and (abs(cx - 0.5) > 0.1 or abs(cy - 0.5) > 0.1):
                     found.append((cx, cy, area, box.xmin, box.ymin, box.width, box.height))
-        cap.release()
-        detector.close()
         clusters = []
         for face in found:
             for cluster in clusters:
@@ -174,6 +177,13 @@ def detect_video_layout(video_path, start_time=None, end_time=None, samples: int
     except Exception as exc:
         log_error("face_tracker.detect_video_layout", f"MediaPipe failed ({exc}); fallback to Haar.")
         return _detect_video_layout_haar(video_path, start_time=start_time, end_time=end_time, samples=samples, should_cancel=should_cancel)
+    finally:
+        try:
+            if cap is not None:
+                cap.release()
+        finally:
+            if detector is not None:
+                detector.close()
 
 
 def _detect_video_layout_haar(video_path, start_time=None, end_time=None, samples=12, should_cancel=None):
