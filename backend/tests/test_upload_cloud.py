@@ -24,5 +24,7 @@ def test_upload_goes_to_local_workdir_in_cloud_mode(monkeypatch, tmp_path):
     assert url.startswith("local:")
     path = url.split("local:")[1]
     assert os.path.abspath(path).startswith(os.path.abspath(str(tmp_path / "content" / "projects")))
+    # Uploads must be inside <LOCAL_WORKDIR>/uploads so stale-upload GC aligns (colab_api cleanup)
+    assert os.path.abspath(path).startswith(os.path.abspath(os.path.join(str(tmp_path / "content" / "projects"), "uploads")))
     assert not os.path.abspath(path).startswith(os.path.abspath(str(tmp_path / "drive")))
     assert os.path.exists(path)

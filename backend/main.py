@@ -141,11 +141,14 @@ def api_upload_video(file: UploadFile = File(...)):
     else:
         base = ""
     if base:
-        temp_dir = os.path.abspath(os.path.expanduser(base))
+        temp_dir = os.path.join(os.path.abspath(os.path.expanduser(base)), "uploads")
     else:
         temp_dir = os.path.abspath(os.path.join(get_app_data_dir(), "temp_downloads"))
     os.makedirs(temp_dir, exist_ok=True)
-    file_path = os.path.join(temp_dir, f"upload_{file.filename}")
+    safe_filename = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(file.filename or "upload"))
+    if not safe_filename:
+        safe_filename = "upload"
+    file_path = os.path.join(temp_dir, f"upload_{safe_filename}")
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     # Return local path prefixed with local: so jobs.py knows to skip download
