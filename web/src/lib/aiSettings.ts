@@ -33,7 +33,16 @@ function readStorage(key: string): string | null {
 function readJson<T>(key: string, fallback: T): T {
   try {
     const raw = readStorage(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    if (!raw) return fallback;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed) ||
+      Object.getPrototypeOf(parsed) !== Object.prototype ||
+      Object.values(parsed).some((value) => typeof value !== "string")
+    ) return fallback;
+    return parsed as T;
   } catch {
     return fallback;
   }
