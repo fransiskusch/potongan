@@ -58,8 +58,11 @@ flow Settings desktop (`src/components/settings/ProviderSection.tsx`):
   Model Name, tombol **Fetch Models** → `POST /api/providers/models`.
 - **Model dropdown**: opsi fallback dari `fallbackModels` registry +
   hasil fetch. Default = `defaultModel` provider.
-- **Tombol Test Key** → `POST /api/settings/test-ai`. Sukses → toast
-  hijau; gagal → toast merah dengan pesan error backend.
+- **Tombol Test Key** → `POST /api/settings/test-ai`. Sukses → pesan
+  sukses inline (teks hijau) di dalam modal; gagal → pesan error inline
+  (teks merah) dengan pesan error backend. Web belum punya sistem toast,
+  jadi feedback ditampilkan inline di modal (sederhana, tanpa
+  menambah-sistem baru).
 
 ### Perubahan StepInput (`web/src/components/Steps/StepInput.tsx`)
 
