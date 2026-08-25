@@ -94,4 +94,5 @@ export interface CreateJobPayload {
   language?: string;
   canvas_config?: CanvasConfig;
   subtitle_config?: SubtitleConfig;
+  save_source_to_drive?: boolean;
 }

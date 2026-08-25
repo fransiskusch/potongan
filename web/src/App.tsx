@@ -319,9 +319,10 @@ function MainWizard() {
                 <StepInput
                   key={resetKey}
                   initialUrl={activeJob?.metadata?.source_video}
-                  isSubmitting={isLoading}
-                  onSubmit={handleStep1Submit}
-                />
+                   isSubmitting={isLoading}
+                   onSubmit={handleStep1Submit}
+                   onOpenSettings={() => setSettingsOpen(true)}
+                 />
               )}
 
               {currentStep === 2 && (

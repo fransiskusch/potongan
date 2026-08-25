@@ -15,7 +15,8 @@ import {
   HardDrive,
   Folder,
   FileVideo,
-  ChevronLeft
+  ChevronLeft,
+  Bot
 } from "lucide-react";
 import { OutputStyleSelector, type OutputStyle } from "../OutputStyleSelector";
 import { SubtitlePresetBar } from "../SubtitlePresetBar";
@@ -24,6 +25,8 @@ import { SUBTITLE_PRESETS, DEFAULT_SUBTITLE_CONFIG, type SubtitlePresetKey, type
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig } from "../../types/canvas";
 import type { CreateJobPayload } from "../../types/job";
 import { apiBrowseGDrive, type GDriveItem } from "../../api";
+import { useAISettings } from "../../lib/aiSettings";
+import { getProviderConfig } from "../../lib/providers";
 
 const GDriveBrowserModal: React.FC<{
   isOpen: boolean;
@@ -131,6 +134,7 @@ export interface StepInputProps {
   initialUrl?: string;
   isSubmitting?: boolean;
   onSubmit: (payload: CreateJobPayload) => void;
+  onOpenSettings?: () => void;
 }
 
 const STORAGE_DRAFT_INPUT = "ac_draft_step_input";
@@ -157,7 +161,9 @@ export const StepInput: React.FC<StepInputProps> = ({
   initialUrl = "",
   isSubmitting = false,
   onSubmit,
+  onOpenSettings,
 }) => {
+  const ai = useAISettings();
   const [url, setUrl] = useState<string>(initialUrl);
   const [title, setTitle] = useState<string>("");
   const [outputStyle, setOutputStyle] = useState<OutputStyle>("face_crop");
@@ -168,6 +174,7 @@ export const StepInput: React.FC<StepInputProps> = ({
   const [maxClips, setMaxClips] = useState<number>(0);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [isBrowserOpen, setIsBrowserOpen] = useState<boolean>(false);
+  const [saveSource, setSaveSource] = useState<boolean>(true);
 
   // Canvas customization
   const [canvasBgType, setCanvasBgType] = useState<"blur" | "color">("blur");
@@ -304,7 +311,8 @@ export const StepInput: React.FC<StepInputProps> = ({
 
     const payload: CreateJobPayload = {
       url: url.trim(),
-      provider: "manual",
+      provider: ai.provider,
+      api_key: ai.provider === "manual_ai" ? "" : ai.apiKeys[ai.provider] || "",
       title: title.trim() || `Auto Clip - ${new Date().toLocaleTimeString()}`,
       aspect_ratio: aspectRatio,
       caption_style: subtitlePreset === "podcast" ? "karaoke" : subtitlePreset === "viral_pop" ? "single_word" : "standard",
@@ -313,6 +321,10 @@ export const StepInput: React.FC<StepInputProps> = ({
       whisper_model: whisperModel,
       language: language === "auto" ? "" : language,
       max_clips: maxClips,
+      model: ai.provider === "manual_ai" ? "" : ai.model,
+      custom_base_url: ai.provider === "custom" ? ai.customBaseUrl : "",
+      custom_model_name: ai.provider === "custom" ? ai.customModelName : "",
+      save_source_to_drive: saveSource,
       canvas_config: canvasConfig,
       subtitle_config: subtitleConfig,
     };
@@ -404,6 +416,34 @@ export const StepInput: React.FC<StepInputProps> = ({
           </div>
         )}
       </div>
+
+      <div className="flex items-center justify-between p-3 bg-neutral-900/60 border border-neutral-800 rounded-xl">
+        <div className="text-xs text-neutral-400 flex items-center gap-2">
+          <Bot className="w-4 h-4 text-amber-400" />
+          <span>AI Engine:</span>
+          <span className="text-neutral-200 font-medium">
+            {getProviderConfig(ai.provider)?.label}
+            {ai.provider !== "manual_ai" && ai.model ? ` · ${ai.model}` : ""}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="text-xs font-semibold text-amber-400 hover:underline"
+        >
+          Ubah
+        </button>
+      </div>
+
+      <label className="flex items-center gap-2 text-xs text-neutral-300">
+        <input
+          type="checkbox"
+          checked={saveSource}
+          onChange={(e) => setSaveSource(e.target.checked)}
+          className="accent-amber-400"
+        />
+        Simpan video sumber ke Drive
+      </label>
 
       {/* Output Style Selector */}
       <div className="pt-1">
