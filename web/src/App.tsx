@@ -17,15 +17,26 @@ import { StepPaste } from "./components/Steps/StepPaste";
 import { StepResult } from "./components/Steps/StepResult";
 import { useJobPolling } from "./hooks/useJobPolling";
 import { clearAuthToken, apiCheckHealth } from "./api";
-import { AISettingsProvider } from "./lib/aiSettings";
+import { AISettingsProvider, useAISettings } from "./lib/aiSettings";
 import { AISettingsModal } from "./components/AISettingsModal";
 import type { CreateJobPayload } from "./types/job";
 
 export type WizardStep = 1 | 2 | 3 | 4;
 
 const STORAGE_STEP_KEY = "ac_wizard_current_step";
+const STORAGE_JOB_MODE_KEY = "ac_active_job_mode";
+type JobMode = "manual" | "ai";
 
 function MainWizard() {
+  const { provider } = useAISettings();
+  const isManualMode = provider === "manual_ai";
+  const [jobMode, setJobMode] = useState<JobMode | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_JOB_MODE_KEY);
+      if (saved === "manual" || saved === "ai") return saved;
+    }
+    return null;
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentView, setCurrentView] = useState<"wizard" | "history">("wizard");
   const [resetKey, setResetKey] = useState(0);
@@ -59,6 +70,7 @@ function MainWizard() {
     stopPolling,
     startPolling,
   } = useJobPolling();
+  const wizardIsManual = jobId ? (jobMode ?? isManualMode) : isManualMode;
 
   // Save current step to localStorage
   useEffect(() => {
@@ -85,26 +97,35 @@ function MainWizard() {
   // Automatic step synchronization based on background job status
   useEffect(() => {
     if (jobId) {
-      if (status === "AWAITING_MANUAL" && prompt) {
-        if (currentStep !== 2 && currentStep !== 3) setCurrentStep(2);
-      } else if (
-        status === "CROPPING" ||
-        status === "PROCESSING" ||
-        status === "DONE" ||
-        status === "ERROR"
-      ) {
-        if (currentStep !== 4) setCurrentStep(4);
-      } else if (status === "DOWNLOADING" || status === "TRANSCRIBING") {
-        if (currentStep !== 2 && currentStep !== 3) setCurrentStep(2);
+      const activeJobIsManual = jobMode === "manual" || (jobMode === null && isManualMode);
+      if (activeJobIsManual) {
+        if (status === "AWAITING_MANUAL" && prompt) {
+          if (currentStep !== 2 && currentStep !== 3) setCurrentStep(2);
+        } else if (status === "CROPPING" || status === "PROCESSING" || status === "DONE" || status === "ERROR") {
+          if (currentStep !== 4) setCurrentStep(4);
+        } else if (status === "DOWNLOADING" || status === "TRANSCRIBING") {
+          if (currentStep !== 2 && currentStep !== 3) setCurrentStep(2);
+        }
+      } else {
+        if (status === "CROPPING" || status === "PROCESSING" || status === "DONE" || status === "ERROR") {
+          if (currentStep !== 3) setCurrentStep(3);
+        } else if (status === "DOWNLOADING" || status === "TRANSCRIBING") {
+          if (currentStep !== 2) setCurrentStep(2);
+        }
       }
     }
-  }, [status, jobId, prompt, currentStep]);
+  }, [status, jobId, prompt, currentStep, jobMode, isManualMode]);
 
   const handleStep1Submit = async (payload: CreateJobPayload) => {
+    const mode = isManualMode ? "manual" : "ai";
+    setJobMode(mode);
+    if (typeof window !== "undefined") localStorage.setItem(STORAGE_JOB_MODE_KEY, mode);
     try {
       await createAndStartJob(payload);
       setCurrentStep(2);
     } catch (err) {
+      setJobMode(null);
+      if (typeof window !== "undefined") localStorage.removeItem(STORAGE_JOB_MODE_KEY);
       // Error handled in hook / displayed in Step
     }
   };
@@ -125,10 +146,12 @@ function MainWizard() {
   const handleResetToNewJob = () => {
     setCurrentView("wizard");
     resetJob();
+    setJobMode(null);
     setCurrentStep(1);
     setResetKey((prev) => prev + 1);
     if (typeof window !== "undefined") {
       localStorage.removeItem(STORAGE_STEP_KEY);
+      localStorage.removeItem(STORAGE_JOB_MODE_KEY);
       localStorage.removeItem("ac_draft_step_input");
       setTimeout(() => localStorage.removeItem("ac_draft_step_input"), 10);
     }
@@ -137,10 +160,12 @@ function MainWizard() {
   const handleRetryJob = () => {
     setCurrentView("wizard");
     resetJob();
+    setJobMode(null);
     setCurrentStep(1);
     setResetKey((prev) => prev + 1);
     if (typeof window !== "undefined") {
       localStorage.removeItem(STORAGE_STEP_KEY);
+      localStorage.removeItem(STORAGE_JOB_MODE_KEY);
       localStorage.removeItem("ac_draft_step_input");
       setTimeout(() => localStorage.removeItem("ac_draft_step_input"), 10);
     }
@@ -152,12 +177,18 @@ function MainWizard() {
     }
   };
 
-  const STEPS_CONFIG = [
-    { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
-    { num: 2 as WizardStep, label: "AI Prompt", desc: "Transcribe" },
-    { num: 3 as WizardStep, label: "Highlights", desc: "Paste JSON" },
-    { num: 4 as WizardStep, label: "Export", desc: "Render & Download" },
-  ];
+  const STEPS_CONFIG = wizardIsManual
+    ? [
+        { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
+        { num: 2 as WizardStep, label: "AI Prompt", desc: "Transcribe" },
+        { num: 3 as WizardStep, label: "Highlights", desc: "Paste JSON" },
+        { num: 4 as WizardStep, label: "Export", desc: "Render & Download" },
+      ]
+    : [
+        { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
+        { num: 2 as WizardStep, label: "AI Processing", desc: "Transcribe & Pick" },
+        { num: 3 as WizardStep, label: "Export", desc: "Render & Download" },
+      ];
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 antialiased py-6 sm:py-10 px-4 sm:px-6 lg:px-8 selection:bg-amber-400 selection:text-neutral-950">
@@ -264,7 +295,7 @@ function MainWizard() {
           <>
             {/* Wizard Step Navigation Bar */}
             <nav aria-label="Progress" className="bg-neutral-900/70 border border-neutral-800/80 rounded-2xl p-2 sm:p-3 backdrop-blur-md shadow-lg">
-              <ol className="grid grid-cols-4 gap-1.5 sm:gap-2">
+              <ol className={`${wizardIsManual ? "grid-cols-4" : "grid-cols-3"} grid gap-1.5 sm:gap-2`}>
                 {STEPS_CONFIG.map((step) => {
                   const isActive = currentStep === step.num;
                   const isCompleted = currentStep > step.num;
@@ -336,7 +367,7 @@ function MainWizard() {
                 />
               )}
 
-              {currentStep === 3 && (
+              {currentStep === 3 && wizardIsManual && (
                 <StepPaste
                   jobId={jobId || "new_job"}
                   isSubmitting={isLoading}
@@ -345,7 +376,7 @@ function MainWizard() {
                 />
               )}
 
-              {currentStep === 4 && (
+              {((currentStep === 4 && wizardIsManual) || (currentStep === 3 && !wizardIsManual)) && (
                 <StepResult
                   jobId={jobId || "job"}
                   status={status}
