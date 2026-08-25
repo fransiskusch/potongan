@@ -61,7 +61,13 @@ def get_project_workspace(title: str, output_dir: str = "", job_id: str = "") ->
     if output_dir and output_dir.strip():
         base_dir = output_dir.strip()
     else:
-        base_dir = os.path.join(get_app_data_dir(), "projects")
+        from backend.cloud_sync import is_cloud_mode
+
+        local_ws = os.environ.get("AUTO_CLIPPER_LOCAL_WORKDIR", "").strip() if is_cloud_mode() else ""
+        if local_ws:
+            base_dir = os.path.abspath(os.path.expanduser(local_ws))
+        else:
+            base_dir = os.path.join(get_app_data_dir(), "projects")
 
     project_dir = os.path.join(base_dir, safe_title)
     source_dir = os.path.join(project_dir, "source")
@@ -1104,6 +1110,33 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
     for key in ["provider", "api_key", "custom_base_url", "custom_model_name", "model", "mode", "aspect_ratio", "caption_style", "burn_subs", "output_dir", "enable_broll", "pexels_api_key", "max_clips", "is_gaming_video", "whisper_model", "canvas_config", "subtitle_config"]:
         if key in job:
             metadata[key] = job[key]
+
+    # --- Sinkronisasi hasil ke Drive (cloud mode) ---
+    from backend.cloud_sync import is_cloud_mode, get_persistent_root, sync_project_to_persistent, rewrite_path_to_persistent
+
+    if is_cloud_mode() and status in ["DONE"]:
+        try:
+            local_projects_root = os.environ.get("AUTO_CLIPPER_LOCAL_WORKDIR", "").strip()
+            persistent_root = get_persistent_root()
+            if local_projects_root and persistent_root:
+                local_projects_root = os.path.abspath(os.path.expanduser(local_projects_root))
+                persistent_projects = os.path.join(persistent_root, "projects")
+                # Sinkron folder hasil proyek ini
+                proj_name = sanitize_title(job.get("title", "")) or f"Project_{job_id}"
+                local_proj = os.path.join(local_projects_root, proj_name)
+                sync_project_to_persistent(local_proj)
+                # Rewrite path klip + metadata agar menunjuk Drive
+                for clip in job.get("clips", []):
+                    clip["path"] = rewrite_path_to_persistent(clip["path"], local_projects_root, persistent_projects)
+                for meta_key in ("source_video", "subtitle_path"):
+                    if metadata.get(meta_key):
+                        metadata[meta_key] = rewrite_path_to_persistent(metadata[meta_key], local_projects_root, persistent_projects)
+                # Clip-level custom subtitle path juga ikut di-rewrite
+                for clip in job.get("clips", []):
+                    if clip.get("custom_subtitle_path"):
+                        clip["custom_subtitle_path"] = rewrite_path_to_persistent(clip["custom_subtitle_path"], local_projects_root, persistent_projects)
+        except Exception as e:
+            log_error("jobs.finalize_cloud_sync", e)
 
     if status in ["DONE", "ERROR", "CANCELLED", "AWAITING_MANUAL"]:
         try:

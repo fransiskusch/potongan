@@ -54,3 +54,34 @@ def test_rewrite_path(monkeypatch, tmp_path):
 
     outside = str(tmp_path / "elsewhere" / "a.mp4")
     assert rewrite_path_to_persistent(outside, local_root, persistent_root) == outside
+
+
+def test_rewrite_paths_in_finalize_payload():
+    from backend.cloud_sync import rewrite_path_to_persistent
+
+    local_root = "/content/projects"
+    persistent_projects = "/content/drive/MyDrive/AutoClipperData/projects"
+    clips = [
+        {"path": "/content/projects/J/clips/a.mp4", "description": "x"},
+        {"path": "/content/projects/J/clips/b.mp4", "description": "y"},
+    ]
+    metadata = {
+        "source_video": "/content/projects/J/source/source_video.mp4",
+        "subtitle_path": "/content/projects/J/subtitles/subtitles.words.json",
+    }
+    # Helper yang sama dipakai _finalize_job — local_projects_root vs persistent_projects
+    new_clips = [
+        {**c, "path": rewrite_path_to_persistent(c["path"], local_root, persistent_projects)}
+        for c in clips
+    ]
+    # Normalize for Windows (abspath adds C:\); compare via forward-slash form
+    def _norm(p):
+        return os.path.normpath(p).replace("\\", "/")
+
+    assert _norm(new_clips[0]["path"]).endswith("AutoClipperData/projects/J/clips/a.mp4")
+    assert _norm(new_clips[0]["path"]).startswith(_norm("/content/drive/MyDrive/AutoClipperData/projects/").lstrip("C:"))
+    # Also check via tmp-relative logic / string containment for Windows compatibility
+    # Persisted source should map to persistent_projects/J/...
+    rewritten_source = rewrite_path_to_persistent(metadata["source_video"], local_root, persistent_projects)
+    assert _norm(rewritten_source).replace("\\", "/").endswith("AutoClipperData/projects/J/source/source_video.mp4")
+    assert _norm(rewrite_path_to_persistent(metadata["source_video"], local_root, persistent_projects)) == _norm(os.path.join(persistent_projects, "J", "source", "source_video.mp4"))
