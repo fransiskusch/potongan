@@ -12,6 +12,7 @@ def test_job_requests_accept_subtitle_config():
     )
     assert req1.subtitle_config["style"] == "karaoke"
     assert req1.subtitle_config["font_size"] == 24
+    assert req1.save_source_to_drive is True
 
     req2 = ManualJobRequest(
         url="https://youtube.com/watch?v=123",
@@ -33,6 +34,15 @@ def test_create_job_stores_subtitle_config(monkeypatch):
         subtitle_config=sub_cfg
     )
     assert jobs.active_jobs[job_id]["subtitle_config"] == sub_cfg
+    jobs.active_jobs.pop(job_id, None)
+
+
+def test_create_job_stores_save_source_to_drive(monkeypatch):
+    monkeypatch.setattr(jobs, "is_any_job_running", lambda: False)
+    monkeypatch.setattr(jobs, "check_title_uniqueness", lambda title: None)
+    monkeypatch.setattr(jobs.threading, "Thread", lambda **kwargs: type("Thread", (), {"start": lambda self: None})())
+    job_id = jobs.create_job("url", "provider", "key", title="Project", save_source_to_drive=False)
+    assert jobs.active_jobs[job_id]["save_source_to_drive"] is False
     jobs.active_jobs.pop(job_id, None)
 
 

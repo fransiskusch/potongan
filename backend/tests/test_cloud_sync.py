@@ -85,3 +85,24 @@ def test_rewrite_paths_in_finalize_payload():
     rewritten_source = rewrite_path_to_persistent(metadata["source_video"], local_root, persistent_projects)
     assert _norm(rewritten_source).replace("\\", "/").endswith("AutoClipperData/projects/J/source/source_video.mp4")
     assert _norm(rewrite_path_to_persistent(metadata["source_video"], local_root, persistent_projects)) == _norm(os.path.join(persistent_projects, "J", "source", "source_video.mp4"))
+
+
+def test_sync_source_to_persistent_copies_source(monkeypatch, tmp_path):
+    monkeypatch.setenv("AUTO_CLIPPER_CLOUD_MODE", "1")
+    monkeypatch.setenv("AUTO_CLIPPER_WORKSPACE", str(tmp_path / "drive"))
+    from backend.cloud_sync import sync_source_to_persistent
+    local = tmp_path / "local_projects" / "Judul"
+    (local / "source").mkdir(parents=True)
+    src_file = local / "source" / "source_video.mp4"
+    src_file.write_bytes(b"videodata")
+    dest = sync_source_to_persistent(str(local))
+    assert dest.endswith("source" + os.sep + "source_video.mp4")
+    assert os.path.exists(dest)
+    assert open(dest, "rb").read() == b"videodata"
+
+
+def test_sync_source_to_persistent_noop_non_cloud(monkeypatch, tmp_path):
+    monkeypatch.delenv("AUTO_CLIPPER_CLOUD_MODE", raising=False)
+    from backend.cloud_sync import sync_source_to_persistent
+    local = tmp_path / "x"
+    assert sync_source_to_persistent(str(local)) == ""

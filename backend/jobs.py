@@ -90,7 +90,7 @@ def get_project_workspace(title: str, output_dir: str = "", job_id: str = "") ->
     }
 
 
-def create_job(url: str, provider: str, api_key: str, aspect_ratio: str = "9:16", caption_style: str = "standard", burn_subs: bool = True, output_dir: str = "", quality: str = "best", title: str = "", enable_broll: bool = False, pexels_api_key: str = "", max_clips: int = 0, custom_base_url: str = "", custom_model_name: str = "", is_gaming_video: bool = False, whisper_model: str = "small", model: str = "", canvas_config: dict = None, subtitle_config: dict = None) -> str:
+def create_job(url: str, provider: str, api_key: str, aspect_ratio: str = "9:16", caption_style: str = "standard", burn_subs: bool = True, output_dir: str = "", quality: str = "best", title: str = "", enable_broll: bool = False, pexels_api_key: str = "", max_clips: int = 0, custom_base_url: str = "", custom_model_name: str = "", is_gaming_video: bool = False, whisper_model: str = "small", model: str = "", canvas_config: dict = None, subtitle_config: dict = None, save_source_to_drive: bool = True) -> str:
     if is_any_job_running():
         from fastapi import HTTPException
         raise HTTPException(status_code=409, detail="Ada proses lain yang sedang berjalan. Harap tunggu hingga selesai.")
@@ -111,6 +111,7 @@ def create_job(url: str, provider: str, api_key: str, aspect_ratio: str = "9:16"
         "aspect_ratio": aspect_ratio,
         "canvas_config": canvas_config,
         "subtitle_config": subtitle_config,
+        "save_source_to_drive": save_source_to_drive,
         "caption_style": caption_style,
         "burn_subs": burn_subs,
         "output_dir": output_dir,

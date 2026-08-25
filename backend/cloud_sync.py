@@ -72,3 +72,27 @@ def sync_project_to_persistent(local_project_dir: str, keep: tuple = ("clips", "
     except Exception as e:
         log_error("cloud_sync.sync_project_to_persistent", e)
         return empty
+
+
+def sync_source_to_persistent(local_project_dir: str) -> str:
+    """Salin source/source_video.mp4 ke Drive. No-op di non-cloud."""
+    if not is_cloud_mode():
+        return ""
+    persistent_root = get_persistent_root()
+    if not persistent_root or not local_project_dir or not os.path.isdir(local_project_dir):
+        return ""
+
+    src_file = os.path.join(local_project_dir, "source", "source_video.mp4")
+    if not os.path.isfile(src_file):
+        return ""
+
+    dest_project = os.path.join(persistent_root, _PERSISTENT_PROJECTS, os.path.basename(os.path.normpath(local_project_dir)))
+    dest_file = os.path.join(dest_project, "source", "source_video.mp4")
+    try:
+        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+        shutil.copy2(src_file, dest_file)
+        log_app(f"[cloud_sync] Synced source video to {dest_file}")
+        return dest_file
+    except Exception as e:
+        log_error("cloud_sync.sync_source_to_persistent", e)
+        return ""

@@ -351,6 +351,7 @@ class CreateJobRequest(BaseModel):
     model: str = ""
     canvas_config: Optional[CanvasConfig] = None
     subtitle_config: Optional[dict] = None
+    save_source_to_drive: bool = True
 
 class SaveFileRequest(BaseModel):
     src: str
