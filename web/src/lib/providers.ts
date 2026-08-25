@@ -25,7 +25,7 @@ export const PROVIDERS: ProviderConfig[] = [
   { id: "openrouter", label: "OpenRouter", defaultModel: "openai/gpt-4o-mini", fallbackModels: ["openai/gpt-4o-mini"], supportsModelFetch: true },
   { id: "xai", label: "xAI Grok", defaultModel: "grok-2-latest", fallbackModels: ["grok-2-latest"], supportsModelFetch: true },
   { id: "mistral", label: "Mistral", defaultModel: "mistral-large-latest", fallbackModels: ["mistral-large-latest"], supportsModelFetch: true },
-  { id: "custom", label: "Custom (OpenAI Compatible)", defaultModel: "", fallbackModels: [], supportsModelFetch: false },
+  { id: "custom", label: "Custom (OpenAI Compatible)", defaultModel: "", fallbackModels: [], supportsModelFetch: true },
   { id: "manual_ai", label: "Manual (Copy-Paste Prompt)", defaultModel: "", fallbackModels: [], supportsModelFetch: false },
 ];
 
