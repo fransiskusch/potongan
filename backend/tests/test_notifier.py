@@ -56,6 +56,17 @@ def test_notify_job_finished_done_sends_message(monkeypatch):
         assert "1 berhasil" in text
 
 
+def test_notify_job_finished_includes_source_copy_warning(monkeypatch):
+    _env(monkeypatch)
+    with patch("backend.notifier.send_telegram_message") as mock_send, \
+         patch("backend.notifier.threading.Thread", side_effect=lambda target, daemon: type("T", (), {"start": target})()):
+        notify_job_finished(
+            "job-warning", "DONE", {"title": "Judul", "clips": [], "failed": 0},
+            {"title": "Judul", "warning": "source video tidak tersimpan ke Drive"},
+        )
+        assert "source video tidak tersimpan ke Drive" in mock_send.call_args.args[0]
+
+
 def test_notify_job_finished_error_sends_message(monkeypatch):
     _env(monkeypatch)
     job = {"title": "X", "clips": [], "failed": 0, "error": "gagal"}

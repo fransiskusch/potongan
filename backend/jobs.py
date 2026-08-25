@@ -1127,8 +1127,11 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
                 local_proj = os.path.join(local_projects_root, proj_name)
                 sync_project_to_persistent(local_proj)
                 source_dest = ""
-                if job.get("save_source_to_drive", True) and not job.get("url", "").startswith("local:"):
+                source_requested = job.get("save_source_to_drive", True) and not job.get("url", "").startswith("local:")
+                if source_requested:
                     source_dest = sync_source_to_persistent(local_proj)
+                    if not source_dest:
+                        metadata["warning"] = "source video tidak tersimpan ke Drive"
                 # Rewrite path klip + metadata agar menunjuk Drive
                 for clip in job.get("clips", []):
                     clip["path"] = rewrite_path_to_persistent(clip["path"], local_projects_root, persistent_projects)

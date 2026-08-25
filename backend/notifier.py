@@ -69,6 +69,9 @@ def notify_job_finished(job_id: str, status: str, job: dict, metadata: dict) -> 
         f"\u23f1 Durasi proses: {duration_text}",
         "",
     ]
+    if metadata.get("warning"):
+        lines.append(str(metadata["warning"]))
+        lines.append("")
     if clips:
         lines.append("\U0001f4e5 Unduh klip:")
         for index, clip in enumerate(clips, start=1):
@@ -83,6 +86,8 @@ def notify_job_finished(job_id: str, status: str, job: dict, metadata: dict) -> 
         if len(title_line) > 500:
             title_line = title_line[:497] + "..."
         lines = [lines[0], title_line, lines[2], lines[3], lines[4], ""]
+        if metadata.get("warning"):
+            lines.extend([str(metadata["warning"]), ""])
         lines.append("\U0001f4e5 Unduh klip:")
         footer = "\n\u23f3 Link aktif selama backend Colab menyala."
         for index, clip in enumerate(clips, start=1):
