@@ -74,6 +74,27 @@ def test_is_valid_source_url_rejects_others():
     assert not is_valid_source_url("not a url")
 
 
+def test_custom_provider_url_rejects_private_hosts():
+    from backend.ai_utils import validate_custom_base_url
+    for url in (
+        "http://localhost:11434/v1",
+        "http://127.0.0.1/v1",
+        "http://169.254.169.254/latest/meta-data",
+        "http://10.0.0.5/v1",
+        "ftp://public.example/v1",
+    ):
+        try:
+            validate_custom_base_url(url)
+            assert False, url
+        except ValueError:
+            pass
+
+
+def test_custom_provider_url_accepts_public_https():
+    from backend.ai_utils import validate_custom_base_url
+    assert validate_custom_base_url("https://router.example/v1/models/") == "https://router.example/v1/models"
+
+
 def test_create_job_rejects_invalid_url():
     r = client.post("/jobs", json={"url": "https://example.com/x"})
     assert r.status_code == 400
@@ -87,6 +108,19 @@ def test_create_job_accepts_valid_url(monkeypatch):
     r = client.post("/jobs", json={"url": "https://youtube.com/watch?v=abc", "title": "My Test Project"})
     assert r.status_code == 200
     assert r.json()["job_id"] == "fake-id"
+
+
+def test_create_job_forwards_save_source_to_drive(monkeypatch):
+    captured = {}
+    monkeypatch.setattr("backend.jobs.create_job", lambda *a, **k: captured.update(k) or "fake-id")
+    monkeypatch.setattr("backend.ai_utils.ping_provider", lambda *a, **k: None)
+    r = client.post("/jobs", json={
+        "url": "https://youtube.com/watch?v=abc",
+        "title": "My Test Project",
+        "save_source_to_drive": False,
+    })
+    assert r.status_code == 200
+    assert captured["save_source_to_drive"] is False
 
 
 def test_create_job_rejects_missing_title(monkeypatch):
@@ -208,7 +242,7 @@ def test_get_logs_endpoint():
 def test_api_fetch_models_endpoint(monkeypatch):
     monkeypatch.setattr(
         "backend.ai_utils.fetch_provider_models",
-        lambda provider, api_key: [{"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"}]
+        lambda provider, api_key, custom_base_url="", custom_model_name="": [{"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"}]
     )
     res = client.post("/api/providers/models", json={"provider": "gemini", "api_key": "valid-key"})
     assert res.status_code == 200
@@ -216,6 +250,47 @@ def test_api_fetch_models_endpoint(monkeypatch):
     assert data["status"] == "success"
     assert len(data["models"]) == 1
     assert data["models"][0]["id"] == "gemini-2.5-flash"
+
+
+def test_api_fetch_models_custom_forwards_trimmed_fields(monkeypatch):
+    calls = {}
+
+    def fake_fetch(provider, api_key, custom_base_url="", custom_model_name=""):
+        calls.update(provider=provider, api_key=api_key, custom_base_url=custom_base_url, custom_model_name=custom_model_name)
+        return [{"id": "model-a", "label": "model-a"}]
+
+    monkeypatch.setattr("backend.ai_utils.fetch_provider_models", fake_fetch)
+    res = client.post(
+        "/api/providers/models",
+        json={
+            "provider": "custom",
+            "api_key": "  secret  ",
+            "custom_base_url": "  https://router.example/v1/models/  ",
+            "custom_model_name": "  model-a  ",
+        },
+    )
+
+    assert res.status_code == 200
+    assert calls == {
+        "provider": "custom",
+        "api_key": "secret",
+        "custom_base_url": "https://router.example/v1/models/",
+        "custom_model_name": "model-a",
+    }
+
+
+def test_api_fetch_models_custom_errors_are_not_success(monkeypatch):
+    def fail_fetch(*args, **kwargs):
+        raise ValueError("provider authentication failed")
+
+    monkeypatch.setattr("backend.ai_utils.fetch_provider_models", fail_fetch)
+    res = client.post(
+        "/api/providers/models",
+        json={"provider": "custom", "api_key": "secret", "custom_base_url": "https://router.example/v1"},
+    )
+
+    assert res.status_code == 400
+    assert res.json() == {"status": "error", "message": "provider authentication failed"}
 
 
 def test_get_words_endpoint(tmp_path, monkeypatch):

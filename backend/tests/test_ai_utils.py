@@ -226,6 +226,123 @@ def test_fetch_provider_models_openai():
         assert models[0]["id"] == "gpt-4o"
 
 
+def test_fetch_provider_models_custom_uses_openai_models_list(monkeypatch):
+    from backend import ai_utils
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            assert kwargs.get("base_url") == "https://my9router.example/v1"
+
+        class Models:
+            def list(self):
+                return type("Resp", (), {"data": [type("M", (), {"id": "model-a"})(), type("M", (), {"id": "model-b"})()]})()
+
+        models = Models()
+
+    monkeypatch.setattr(ai_utils, "OpenAI", FakeClient)
+    models = ai_utils.fetch_provider_models("custom", "key", custom_base_url="https://my9router.example/v1")
+    assert [m["id"] for m in models] == ["model-a", "model-b"]
+
+
+def test_fetch_provider_models_custom_normalizes_models_suffix(monkeypatch):
+    from backend import ai_utils
+    urls = []
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            urls.append(kwargs["base_url"])
+
+        class Models:
+            def list(self):
+                return type("Resp", (), {"data": []})()
+
+        models = Models()
+
+    monkeypatch.setattr(ai_utils, "OpenAI", FakeClient)
+    for raw_url in ("https://router.example/v1/models", "https://router.example/v1/models/"):
+        ai_utils.fetch_provider_models("custom", "key", custom_base_url=raw_url)
+    assert urls == ["https://router.example/v1", "https://router.example/v1"]
+
+
+def test_fetch_provider_models_custom_rejects_unsafe_urls():
+    from backend.ai_utils import fetch_provider_models
+    import pytest
+
+    for raw_url in (
+        "ftp://router.example/v1",
+        "https://user:pass@router.example/v1",
+        "https://router.example/v1?token=secret",
+        "https://router.example/v1#models",
+    ):
+        with pytest.raises(ValueError):
+            fetch_provider_models("custom", "key", custom_base_url=raw_url)
+
+
+def test_fetch_provider_models_custom_errors_are_observable(monkeypatch):
+    from backend import ai_utils
+    import pytest
+
+    class FailingClient:
+        def __init__(self, **kwargs):
+            pass
+
+        class Models:
+            def list(self):
+                raise TimeoutError("provider timeout")
+
+        models = Models()
+
+    monkeypatch.setattr(ai_utils, "OpenAI", FailingClient)
+    with pytest.raises(TimeoutError, match="provider timeout"):
+        ai_utils.fetch_provider_models("custom", "key", custom_base_url="https://router.example/v1")
+
+    class MalformedClient:
+        def __init__(self, **kwargs):
+            pass
+
+        class Models:
+            def list(self):
+                return object()
+
+        models = Models()
+
+    monkeypatch.setattr(ai_utils, "OpenAI", MalformedClient)
+    with pytest.raises(ValueError, match="missing data"):
+        ai_utils.fetch_provider_models("custom", "key", custom_base_url="https://router.example/v1")
+
+
+def test_fetch_provider_models_custom_missing_url_is_validation_error():
+    from backend.ai_utils import fetch_provider_models
+    import pytest
+
+    with pytest.raises(ValueError, match="requires a Base URL"):
+        fetch_provider_models("custom", "key")
+
+
+def test_fetch_provider_models_custom_normalizes_url_and_sends_auth(monkeypatch):
+    from backend import ai_utils
+
+    calls = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            calls.update(kwargs)
+
+        class Models:
+            def list(self):
+                return type("Resp", (), {"data": [type("M", (), {"id": "model-a"})()]})()
+
+        models = Models()
+
+    monkeypatch.setattr(ai_utils, "OpenAI", FakeClient)
+    models = ai_utils.fetch_provider_models("custom", "secret", custom_base_url="https://router.example/v1/")
+
+    assert [m["id"] for m in models] == ["model-a"]
+    assert calls["base_url"] == "https://router.example/v1"
+    assert calls["timeout"] == 15.0
+    assert calls["default_headers"]["Authorization"] == "Bearer secret"
+
+
 def test_transcribe_with_faster_whisper_vad_success():
     from backend.ai_utils import transcribe_with_faster_whisper
     from unittest.mock import MagicMock, patch

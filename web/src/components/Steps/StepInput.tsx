@@ -15,7 +15,8 @@ import {
   HardDrive,
   Folder,
   FileVideo,
-  ChevronLeft
+  ChevronLeft,
+  Bot
 } from "lucide-react";
 import { OutputStyleSelector, type OutputStyle } from "../OutputStyleSelector";
 import { SubtitlePresetBar } from "../SubtitlePresetBar";
@@ -23,7 +24,9 @@ import { FontSelector } from "../FontSelector";
 import { SUBTITLE_PRESETS, DEFAULT_SUBTITLE_CONFIG, type SubtitlePresetKey, type SubtitleConfig } from "../../types/subtitle";
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig } from "../../types/canvas";
 import type { CreateJobPayload } from "../../types/job";
-import { apiBrowseGDrive, type GDriveItem } from "../../api";
+import { apiBrowseGDrive, apiSearchGDrive, type GDriveItem } from "../../api";
+import { useAISettings } from "../../lib/aiSettings";
+import { getProviderConfig } from "../../lib/providers";
 
 const GDriveBrowserModal: React.FC<{
   isOpen: boolean;
@@ -35,10 +38,20 @@ const GDriveBrowserModal: React.FC<{
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [parentDir, setParentDir] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<{ name: string; path: string }[] | null>(null);
+  const [searching, setSearching] = useState<boolean>(false);
 
   useEffect(() => {
     if (isOpen) {
+      setSearchQuery("");
+      setSearchResults(null);
+      setError(null);
       fetchDir(currentPath);
+    } else {
+      setSearchQuery("");
+      setSearchResults(null);
+      setError(null);
     }
   }, [isOpen, currentPath]);
 
@@ -57,19 +70,68 @@ const GDriveBrowserModal: React.FC<{
     }
   };
 
+  const handleSearch = async () => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    setError(null);
+    try {
+      const res = await apiSearchGDrive(q);
+      setSearchResults(res.results || []);
+    } catch (err: any) {
+      setError(err.message || "Search failed");
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn" role="dialog" aria-modal="true" aria-labelledby="gdrive-browser-title">
       <div className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between p-4 border-b border-neutral-800">
           <div className="flex items-center gap-2">
             <HardDrive className="w-5 h-5 text-amber-400" />
-            <h3 className="font-semibold text-neutral-100">Browse Google Drive</h3>
+            <h3 id="gdrive-browser-title" className="font-semibold text-neutral-100">Browse Google Drive</h3>
           </div>
-          <button type="button" onClick={onClose} className="p-1 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800 transition-colors">
+          <button type="button" onClick={onClose} aria-label="Close Google Drive browser" className="p-1 text-neutral-400 hover:text-neutral-100 rounded-lg hover:bg-neutral-800 transition-colors">
             <XCircle className="w-5 h-5" />
           </button>
+        </div>
+
+        <div className="p-3 bg-neutral-950 flex items-center gap-2 border-b border-neutral-800">
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearch(); } }}
+            placeholder="Search videos in Drive..."
+            aria-label="Search videos in Google Drive"
+            className="flex-1 px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-lg text-neutral-200 text-sm focus:outline-none focus:border-amber-400/80"
+          />
+          <button
+            type="button"
+            onClick={handleSearch}
+            disabled={searching}
+            className="px-3 py-2 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-neutral-950 text-xs font-bold rounded-lg"
+          >
+            {searching ? "..." : "Cari"}
+          </button>
+          {searchResults !== null && (
+            <button
+              type="button"
+              onClick={() => { setSearchResults(null); setSearchQuery(""); setError(null); }}
+              className="px-2 py-2 text-neutral-400 hover:text-neutral-200 text-xs"
+              title="Clear search"
+              aria-label="Clear search"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
+          )}
         </div>
         
         <div className="p-3 bg-neutral-950 flex items-center gap-2 text-sm text-neutral-300 font-mono overflow-x-auto whitespace-nowrap border-b border-neutral-800">
@@ -87,12 +149,30 @@ const GDriveBrowserModal: React.FC<{
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
-          {loading ? (
+          {loading || searching ? (
             <div className="flex items-center justify-center py-12">
               <div className="w-6 h-6 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
             </div>
           ) : error ? (
             <div className="text-center py-12 text-red-400 text-sm">{error}</div>
+          ) : searchResults !== null ? (
+            searchResults.length === 0 ? (
+              <div className="text-center py-12 text-neutral-500 text-sm" aria-live="polite">Tidak ada video yang cocok dengan '{searchQuery}'</div>
+            ) : (
+              <div className="space-y-1" aria-live="polite">
+                {searchResults.map((item) => (
+                  <button
+                    type="button"
+                    key={item.path}
+                    onClick={() => onSelectFile(item.path)}
+                    className="w-full flex items-center gap-3 p-3 text-left hover:bg-neutral-800 rounded-xl transition-colors group"
+                  >
+                    <FileVideo className="w-5 h-5 text-amber-400 group-hover:text-amber-300 flex-shrink-0" />
+                    <span className="text-sm text-neutral-200 truncate">{item.name}</span>
+                  </button>
+                ))}
+              </div>
+            )
           ) : items.length === 0 ? (
             <div className="text-center py-12 text-neutral-500 text-sm">Folder is empty</div>
           ) : (
@@ -131,6 +211,7 @@ export interface StepInputProps {
   initialUrl?: string;
   isSubmitting?: boolean;
   onSubmit: (payload: CreateJobPayload) => void;
+  onOpenSettings?: () => void;
 }
 
 const STORAGE_DRAFT_INPUT = "ac_draft_step_input";
@@ -157,7 +238,9 @@ export const StepInput: React.FC<StepInputProps> = ({
   initialUrl = "",
   isSubmitting = false,
   onSubmit,
+  onOpenSettings,
 }) => {
+  const ai = useAISettings();
   const [url, setUrl] = useState<string>(initialUrl);
   const [title, setTitle] = useState<string>("");
   const [outputStyle, setOutputStyle] = useState<OutputStyle>("face_crop");
@@ -168,6 +251,7 @@ export const StepInput: React.FC<StepInputProps> = ({
   const [maxClips, setMaxClips] = useState<number>(0);
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
   const [isBrowserOpen, setIsBrowserOpen] = useState<boolean>(false);
+  const [saveSource, setSaveSource] = useState<boolean>(true);
 
   // Canvas customization
   const [canvasBgType, setCanvasBgType] = useState<"blur" | "color">("blur");
@@ -304,7 +388,8 @@ export const StepInput: React.FC<StepInputProps> = ({
 
     const payload: CreateJobPayload = {
       url: url.trim(),
-      provider: "manual",
+      provider: ai.provider,
+      api_key: ai.provider === "manual_ai" ? "" : ai.apiKeys[ai.provider] || "",
       title: title.trim() || `Auto Clip - ${new Date().toLocaleTimeString()}`,
       aspect_ratio: aspectRatio,
       caption_style: subtitlePreset === "podcast" ? "karaoke" : subtitlePreset === "viral_pop" ? "single_word" : "standard",
@@ -313,6 +398,10 @@ export const StepInput: React.FC<StepInputProps> = ({
       whisper_model: whisperModel,
       language: language === "auto" ? "" : language,
       max_clips: maxClips,
+      model: ai.provider === "manual_ai" ? "" : ai.model,
+      custom_base_url: ai.provider === "custom" ? ai.customBaseUrl : "",
+      custom_model_name: ai.provider === "custom" ? ai.customModelName : "",
+      save_source_to_drive: saveSource,
       canvas_config: canvasConfig,
       subtitle_config: subtitleConfig,
     };
@@ -404,6 +493,34 @@ export const StepInput: React.FC<StepInputProps> = ({
           </div>
         )}
       </div>
+
+      <div className="flex items-center justify-between p-3 bg-neutral-900/60 border border-neutral-800 rounded-xl">
+        <div className="text-xs text-neutral-400 flex items-center gap-2">
+          <Bot className="w-4 h-4 text-amber-400" />
+          <span>AI Engine:</span>
+          <span className="text-neutral-200 font-medium">
+            {getProviderConfig(ai.provider)?.label}
+            {ai.provider !== "manual_ai" && ai.model ? ` · ${ai.model}` : ""}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="text-xs font-semibold text-amber-400 hover:underline"
+        >
+          Ubah
+        </button>
+      </div>
+
+      <label className="flex items-center gap-2 text-xs text-neutral-300">
+        <input
+          type="checkbox"
+          checked={saveSource}
+          onChange={(e) => setSaveSource(e.target.checked)}
+          className="accent-amber-400"
+        />
+        Simpan video sumber ke Drive
+      </label>
 
       {/* Output Style Selector */}
       <div className="pt-1">

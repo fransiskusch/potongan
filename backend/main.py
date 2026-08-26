@@ -14,6 +14,7 @@ import sys
 import shutil
 import re
 import secrets
+import time
 from starlette.requests import Request
 
 # --- Frozen-mode stdout guard & SSL Cert Setup ---
@@ -172,15 +173,22 @@ async def health_check():
 
 from fastapi import Query
 
+_GDRIVE_BASE = "/content/drive/MyDrive"
+VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm")
+
 @app.get("/gdrive-browser")
 def api_get_gdrive_browser(dir_path: str = Query("/content/drive/MyDrive")):
     if not os.environ.get("AUTO_CLIPPER_CLOUD_MODE"):
         return {"status": "error", "message": "Only available in Cloud Mode"}
     
     # Keamanan: pastikan path selalu berada di dalam /content/drive/MyDrive
-    base_drive = os.path.abspath("/content/drive/MyDrive")
+    base_drive = os.path.abspath(_GDRIVE_BASE)
     target_path = os.path.abspath(dir_path)
-    if not target_path.startswith(base_drive):
+    try:
+        inside_drive = os.path.commonpath((base_drive, target_path)) == base_drive
+    except ValueError:
+        inside_drive = False
+    if not inside_drive:
         target_path = base_drive
         
     if not os.path.exists(target_path):
@@ -214,6 +222,42 @@ def api_get_gdrive_browser(dir_path: str = Query("/content/drive/MyDrive")):
         "current_dir": target_path,
         "parent_dir": os.path.dirname(target_path) if target_path != base_drive else None
     }
+
+
+@app.get("/gdrive-search")
+def api_gdrive_search(q: str = Query(""), max_results: int = Query(100, ge=1, le=100)):
+    if not os.environ.get("AUTO_CLIPPER_CLOUD_MODE"):
+        return {"status": "error", "message": "Only available in Cloud Mode"}
+    if not q or not q.strip():
+        return {"status": "success", "results": [], "truncated": False}
+
+    needle = q.strip().lower()
+    base_drive = os.path.abspath(_GDRIVE_BASE)
+    base_real = os.path.realpath(base_drive)
+    results = []
+    started = time.monotonic()
+
+    try:
+        for root, dirs, files in os.walk(base_drive):
+            if time.monotonic() - started > 10:
+                return {"status": "success", "results": results, "truncated": True}
+            dirs[:] = [directory for directory in dirs if not directory.startswith(".")]
+            for name in files:
+                if not name.lower().endswith(VIDEO_EXTS) or needle not in name.lower():
+                    continue
+                path = os.path.join(root, name)
+                try:
+                    if os.path.commonpath((base_real, os.path.realpath(path))) != base_real:
+                        continue
+                except ValueError:
+                    continue
+                results.append({"name": name, "path": path})
+                if len(results) >= max_results:
+                    return {"status": "success", "results": results, "truncated": True}
+    except Exception as e:
+        log_error("api_gdrive_search", e)
+
+    return {"status": "success", "results": results, "truncated": False}
 
 
 last_heartbeat = 0.0
@@ -255,6 +299,8 @@ class TestAiRequest(BaseModel):
 class FetchModelsRequest(BaseModel):
     provider: str
     api_key: str
+    custom_base_url: str = ""
+    custom_model_name: str = ""
 
 class GenerateSocialKitRequest(BaseModel):
     description: str
@@ -278,7 +324,7 @@ def api_fetch_models(req: FetchModelsRequest):
     """Fetch available models from a provider's API."""
     try:
         from backend.ai_utils import fetch_provider_models
-        models = fetch_provider_models(req.provider, req.api_key.strip())
+        models = fetch_provider_models(req.provider, req.api_key.strip(), custom_base_url=req.custom_base_url.strip(), custom_model_name=req.custom_model_name.strip())
         return {"status": "success", "models": models}
     except Exception as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
@@ -351,6 +397,7 @@ class CreateJobRequest(BaseModel):
     model: str = ""
     canvas_config: Optional[CanvasConfig] = None
     subtitle_config: Optional[dict] = None
+    save_source_to_drive: bool = True
 
 class SaveFileRequest(BaseModel):
     src: str
@@ -684,7 +731,8 @@ def api_create_job(req: CreateJobRequest):
         req.aspect_ratio, req.caption_style, req.burn_subs, req.output_dir, req.quality,
         req.title.strip(), req.enable_broll, req.pexels_api_key.strip(), req.max_clips,
         req.custom_base_url.strip(), req.custom_model_name.strip(), req.is_gaming_video,
-        req.whisper_model, req.model, canvas_config=canvas_cfg, subtitle_config=req.subtitle_config
+        req.whisper_model, req.model, canvas_config=canvas_cfg, subtitle_config=req.subtitle_config,
+        save_source_to_drive=req.save_source_to_drive
     )
     return {"status": "success", "job_id": job_id}
 

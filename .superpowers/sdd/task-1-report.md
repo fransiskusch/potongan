@@ -1,50 +1,68 @@
 # Task 1 Report
 
-## Status
+Status: complete
 
-Complete. Task 1 requirements are present in existing commit `2b3abed36dfd7b4ab8eff85d3cef699e416fd41b`.
+Branch: `feat/web-ai-drive`
 
-## Files
+Implemented only Telegram notifier:
 
-- `backend/db.py`
-  - `get_app_data_dir()` prefers `AUTO_CLIPPER_LOCAL_WORKDIR`, then `AUTO_CLIPPER_WORKSPACE`, then OS default.
-  - `get_db_path()` still uses persistent workspace and ignores `AUTO_CLIPPER_LOCAL_WORKDIR`.
-- `backend/logger.py`
-  - `get_app_data_dir()` prefers `AUTO_CLIPPER_LOCAL_WORKDIR` before existing fallback logic.
-- `backend/tests/test_db.py`
-  - Added local-workdir precedence test.
-  - Added persistent DB path test.
+- `backend/notifier.py`
+- `backend/tests/test_notifier.py`
 
-## Commit
+Behavior:
 
-- `2b3abed36dfd7b4ab8eff85d3cef699e416fd41b` `feat: prefer AUTO_CLIPPER_LOCAL_WORKDIR for app data dir, keep history.db on persistent workspace`
+- Sends Telegram messages with `requests.post`, 10-second timeout, and best-effort error logging.
+- Skips notifications when bot token or chat ID missing.
+- Builds DONE and ERROR job summaries, clip links, and duration text.
+- Sends asynchronously so job finalization is not blocked.
+- Truncates oversized messages.
 
-## Tests
+TDD evidence:
 
-Command:
+- RED: `pytest backend/tests/test_notifier.py -v` failed during collection with `ModuleNotFoundError: No module named 'backend.notifier'`.
+- GREEN: same command passed with `6 passed`.
+- Syntax check: `python -m py_compile backend/notifier.py backend/tests/test_notifier.py` passed.
+- Diff check: `git diff --check` passed.
+
+Commit hash: `9447b7b`
+
+Concerns:
+
+- No live Telegram API call performed; network behavior covered with mocked request.
+- No DB changes made.
+
+## Review Fix
+
+Fixed review findings:
+
+- `notify_job_finished` now returns before config lookup or thread creation unless status is `DONE` or `ERROR`.
+- Oversized titles, URLs, and clip lines now use a strict 4096-character budget and final hard cap.
+- Added focused tests for ignored statuses and oversized message output.
+
+Verification command:
 
 ```text
-python -m pytest backend/tests/test_db.py::test_get_app_data_dir_prefers_local_workdir backend/tests/test_db.py::test_get_db_path_ignores_local_workdir -v
+pytest backend/tests/test_notifier.py -v
 ```
 
-Output: `2 passed in 0.06s`
-
-Command:
+Exact result:
 
 ```text
-python -m pytest backend/tests/test_db.py -v
+============================= test session starts =============================
+platform win32 -- Python 3.11.15, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\user\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\projects\auto-clipper\.worktrees\web-ai-drive
+plugins: anyio-4.14.2
+collecting ... collected 8 items
+
+backend/tests/test_notifier.py::test_send_telegram_message_success PASSED [ 12%]
+backend/tests/test_notifier.py::test_send_telegram_message_network_error_returns_false PASSED [ 25%]
+backend/tests/test_notifier.py::test_send_telegram_message_empty_token_no_call PASSED [ 37%]
+backend/tests/test_notifier.py::test_notify_job_finished_skips_when_no_env PASSED [ 50%]
+backend/tests/test_notifier.py::test_notify_job_finished_done_sends_message PASSED [ 62%]
+backend/tests/test_notifier.py::test_notify_job_finished_error_sends_message PASSED [ 75%]
+backend/tests/test_notifier.py::test_notify_job_finished_ignores_unknown_status PASSED [ 87%]
+backend/tests/test_notifier.py::test_notify_job_finished_truncates_oversized_message PASSED [100%]
+
+============================== 8 passed in 0.10s ==============================
 ```
-
-Output: `10 passed in 1.62s`
-
-## Self-Review
-
-- Scope limited to Task 1 files plus this report.
-- Local path is trimmed, expanded, converted to absolute path, created, and returned.
-- Persistent DB path does not use local workdir.
-- Existing custom-workspace and OS-default behavior remains covered.
-- No baseline OpenCV or web dependency failures were modified.
-
-## Concerns
-
-- Existing commit predates this execution, so fresh red-phase failure output is not available from current clean worktree. Commit diff confirms required tests and implementation are already included.

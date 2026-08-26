@@ -45,6 +45,8 @@ export interface Clip {
 }
 
 export interface JobMetadata {
+  provider?: string;
+  mode?: "ai" | "manual" | "rerender" | string;
   title?: string;
   manual_prompt?: string;
   subtitle_path?: string;
@@ -94,4 +96,5 @@ export interface CreateJobPayload {
   language?: string;
   canvas_config?: CanvasConfig;
   subtitle_config?: SubtitleConfig;
+  save_source_to_drive?: boolean;
 }

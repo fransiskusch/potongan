@@ -28,6 +28,26 @@ def get_temp_dir():
     return os.path.join(get_app_data_dir(), "temp_downloads")
 
 
+def _is_drive_source(path: str) -> bool:
+    try:
+        if path.replace("\\", "/").startswith("/content/drive/"):
+            return True
+        root = os.path.realpath("/content/drive")
+        return os.path.commonpath((os.path.realpath(path), root)) == root
+    except ValueError:
+        return False
+
+
+def _resolve_local_source(local_src: str, destination: str) -> str:
+    from backend.cloud_sync import is_cloud_mode
+    if is_cloud_mode() and _is_drive_source(local_src):
+        return local_src
+    if os.path.abspath(local_src) != os.path.abspath(destination):
+        import shutil
+        shutil.copy2(local_src, destination)
+    return destination
+
+
 def sanitize_title(title: str) -> str:
     if not title:
         return ""
@@ -90,7 +110,7 @@ def get_project_workspace(title: str, output_dir: str = "", job_id: str = "") ->
     }
 
 
-def create_job(url: str, provider: str, api_key: str, aspect_ratio: str = "9:16", caption_style: str = "standard", burn_subs: bool = True, output_dir: str = "", quality: str = "best", title: str = "", enable_broll: bool = False, pexels_api_key: str = "", max_clips: int = 0, custom_base_url: str = "", custom_model_name: str = "", is_gaming_video: bool = False, whisper_model: str = "small", model: str = "", canvas_config: dict = None, subtitle_config: dict = None) -> str:
+def create_job(url: str, provider: str, api_key: str, aspect_ratio: str = "9:16", caption_style: str = "standard", burn_subs: bool = True, output_dir: str = "", quality: str = "best", title: str = "", enable_broll: bool = False, pexels_api_key: str = "", max_clips: int = 0, custom_base_url: str = "", custom_model_name: str = "", is_gaming_video: bool = False, whisper_model: str = "small", model: str = "", canvas_config: dict = None, subtitle_config: dict = None, save_source_to_drive: bool = True) -> str:
     if is_any_job_running():
         from fastapi import HTTPException
         raise HTTPException(status_code=409, detail="Ada proses lain yang sedang berjalan. Harap tunggu hingga selesai.")
@@ -107,10 +127,11 @@ def create_job(url: str, provider: str, api_key: str, aspect_ratio: str = "9:16"
         "custom_model_name": custom_model_name,
         "whisper_model": whisper_model or "small",
         "model": model,
-        "mode": "ai",
+        "mode": "manual" if provider in ("manual_ai", "manual") else "ai",
         "aspect_ratio": aspect_ratio,
         "canvas_config": canvas_config,
         "subtitle_config": subtitle_config,
+        "save_source_to_drive": save_source_to_drive,
         "caption_style": caption_style,
         "burn_subs": burn_subs,
         "output_dir": output_dir,
@@ -271,11 +292,9 @@ def _run_job(job_id: str):
             job["progress"] = "Mempersiapkan video lokal..."
             log_app(f"[{job_id}] " + str("Mempersiapkan video lokal..."))
             # output_path is copied into project workspace source folder
-            local_src = job["url"].split("local:")[1]
+            local_src = job["url"][len("local:"):]
             output_path = os.path.join(ws["source_dir"], "source_video.mp4")
-            if os.path.abspath(local_src) != os.path.abspath(output_path):
-                import shutil
-                shutil.copy2(local_src, output_path)
+            output_path = _resolve_local_source(local_src, output_path)
         else:
             job["progress"] = "Mengunduh video..."
             log_app(f"[{job_id}] " + str("Mengunduh video..."))
@@ -505,11 +524,9 @@ def _run_manual_job(job_id: str):
         if job["url"].startswith("local:"):
             job["progress"] = "Mempersiapkan video lokal..."
             log_app(f"[{job_id}] " + str("Mempersiapkan video lokal..."))
-            local_src = job["url"].split("local:")[1]
+            local_src = job["url"][len("local:"):]
             source_path = os.path.join(ws["source_dir"], "source_video.mp4")
-            if os.path.abspath(local_src) != os.path.abspath(source_path):
-                import shutil
-                shutil.copy2(local_src, source_path)
+            source_path = _resolve_local_source(local_src, source_path)
         else:
             job["progress"] = "Mengunduh video..."
             log_app(f"[{job_id}] " + str("Mengunduh video..."))
@@ -1107,12 +1124,12 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
     if metadata.get("highlights") and job.get("mode") == "ai":
         metadata["ai_job"] = True
         
-    for key in ["provider", "api_key", "custom_base_url", "custom_model_name", "model", "mode", "aspect_ratio", "caption_style", "burn_subs", "output_dir", "enable_broll", "pexels_api_key", "max_clips", "is_gaming_video", "whisper_model", "canvas_config", "subtitle_config"]:
+    for key in ["provider", "custom_base_url", "custom_model_name", "model", "mode", "aspect_ratio", "caption_style", "burn_subs", "output_dir", "enable_broll", "max_clips", "is_gaming_video", "whisper_model", "canvas_config", "subtitle_config"]:
         if key in job:
             metadata[key] = job[key]
 
     # --- Sinkronisasi hasil ke Drive (cloud mode) ---
-    from backend.cloud_sync import is_cloud_mode, get_persistent_root, sync_project_to_persistent, rewrite_path_to_persistent
+    from backend.cloud_sync import is_cloud_mode, get_persistent_root, sync_project_to_persistent, sync_source_to_persistent, rewrite_path_to_persistent
 
     if is_cloud_mode() and status in ["DONE"]:
         try:
@@ -1125,12 +1142,20 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
                 proj_name = sanitize_title(job.get("title", "")) or f"Project_{job_id}"
                 local_proj = os.path.join(local_projects_root, proj_name)
                 sync_project_to_persistent(local_proj)
+                source_dest = ""
+                source_requested = job.get("save_source_to_drive", True) and not job.get("url", "").startswith("local:")
+                if source_requested:
+                    source_dest = sync_source_to_persistent(local_proj)
+                    if not source_dest:
+                        metadata["warning"] = "source video tidak tersimpan ke Drive"
                 # Rewrite path klip + metadata agar menunjuk Drive
                 for clip in job.get("clips", []):
                     clip["path"] = rewrite_path_to_persistent(clip["path"], local_projects_root, persistent_projects)
-                for meta_key in ("source_video", "subtitle_path"):
+                for meta_key in ("subtitle_path",):
                     if metadata.get(meta_key):
                         metadata[meta_key] = rewrite_path_to_persistent(metadata[meta_key], local_projects_root, persistent_projects)
+                if source_dest:
+                    metadata["source_video"] = source_dest
                 # Clip-level custom subtitle path juga ikut di-rewrite
                 for clip in job.get("clips", []):
                     if clip.get("custom_subtitle_path"):
@@ -1139,6 +1164,14 @@ def _finalize_job(job_id: str, status: str, metadata: dict = None):
             log_error("jobs.finalize_cloud_sync", e)
 
     if status in ["DONE", "ERROR", "CANCELLED", "AWAITING_MANUAL"]:
+        # Notify only user-facing terminal states; notifier owns its daemon thread.
+        if status in ("DONE", "ERROR"):
+            try:
+                from backend.notifier import notify_job_finished
+                notify_job_finished(job_id, status, job, metadata)
+            except Exception as e:
+                log_error("jobs.finalize_notify", e)
+
         try:
             from backend.db import save_history
             save_history(job_id, job["url"], status, job["clips"], metadata)
@@ -1165,7 +1198,7 @@ def resume_manual_job(history_id: str, json_payload: str) -> str:
         "url": hist["url"],
         "provider": "manual_ai",
         "api_key": "",
-        "mode": hist_meta.get("mode", "ai"),
+        "mode": "manual",
         "aspect_ratio": hist_meta.get("aspect_ratio", "9:16"),
         "canvas_config": hist_meta.get("canvas_config"),
         "subtitle_config": hist_meta.get("subtitle_config"),
@@ -1245,7 +1278,7 @@ def create_resume_job(history_id: str, fallback_api_key: str = None, fallback_pr
         "id": job_id,
         "url": hist["url"],
         "provider": provider,
-        "api_key": hist_meta.get("api_key") or fallback_api_key or "",
+        "api_key": fallback_api_key or "",
         "custom_base_url": hist_meta.get("custom_base_url") or fallback_custom_base_url or "",
         "custom_model_name": hist_meta.get("custom_model_name") or fallback_custom_model_name or "",
         "whisper_model": hist_meta.get("whisper_model") or fallback_whisper_model or "small",

@@ -342,3 +342,48 @@ export async function apiBrowseGDrive(dirPath?: string): Promise<{ items: GDrive
     return { items: [], current_dir: "", parent_dir: null };
   }
 }
+
+export interface ProviderModel {
+  id: string;
+  label: string;
+}
+
+export async function apiTestAi(payload: {
+  provider: string;
+  api_key: string;
+  custom_base_url?: string;
+  custom_model_name?: string;
+  model?: string;
+}): Promise<{ status: string; message?: string }> {
+  return await apiFetch<{ status: string; message?: string }>("/api/settings/test-ai", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function apiFetchModels(payload: {
+  provider: string;
+  api_key: string;
+  custom_base_url?: string;
+  custom_model_name?: string;
+}): Promise<{ status: string; models: ProviderModel[] }> {
+  return await apiFetch<{ status: string; models: ProviderModel[] }>("/api/providers/models", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface GDriveSearchResult {
+  name: string;
+  path: string;
+}
+
+export async function apiSearchGDrive(q: string): Promise<{
+  status: string;
+  results: GDriveSearchResult[];
+  truncated: boolean;
+}> {
+  return await apiFetch<{ status: string; results: GDriveSearchResult[]; truncated: boolean }>(
+    `/gdrive-search?q=${encodeURIComponent(q)}`
+  );
+}

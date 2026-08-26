@@ -4,6 +4,7 @@ import {
   Sparkles,
   Check,
   LogOut,
+  Settings,
   RotateCcw,
   Cpu,
   History,
@@ -16,13 +17,54 @@ import { StepPaste } from "./components/Steps/StepPaste";
 import { StepResult } from "./components/Steps/StepResult";
 import { useJobPolling } from "./hooks/useJobPolling";
 import { clearAuthToken, apiCheckHealth } from "./api";
+import { AISettingsProvider, useAISettings } from "./lib/aiSettings";
+import { AISettingsModal } from "./components/AISettingsModal";
 import type { CreateJobPayload } from "./types/job";
 
 export type WizardStep = 1 | 2 | 3 | 4;
 
 const STORAGE_STEP_KEY = "ac_wizard_current_step";
+const STORAGE_JOB_MODE_KEY = "ac_active_job_mode";
+type JobMode = "manual" | "ai";
+
+function getJobMode(job: unknown, fallback: JobMode): JobMode {
+  if (!job || typeof job !== "object") return fallback;
+  const metadata = "metadata" in job && job.metadata && typeof job.metadata === "object" ? job.metadata : null;
+  const mode = metadata && "mode" in metadata ? metadata.mode : "mode" in job ? job.mode : undefined;
+  if (mode === "manual") return "manual";
+  if (mode === "ai" || mode === "rerender") return "ai";
+  const provider = metadata && "provider" in metadata ? metadata.provider : "provider" in job ? job.provider : undefined;
+  if (provider === "manual_ai") return "manual";
+  if (typeof provider === "string" && provider) return "ai";
+  return fallback;
+}
+
+function getSteps(isManualMode: boolean) {
+  return isManualMode
+    ? [
+        { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
+        { num: 2 as WizardStep, label: "AI Prompt", desc: "Transcribe" },
+        { num: 3 as WizardStep, label: "Highlights", desc: "Paste JSON" },
+        { num: 4 as WizardStep, label: "Export", desc: "Render & Download" },
+      ]
+    : [
+        { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
+        { num: 2 as WizardStep, label: "AI Processing", desc: "Transcribe & Pick" },
+        { num: 3 as WizardStep, label: "Export", desc: "Render & Download" },
+      ];
+}
 
 function MainWizard() {
+  const { provider } = useAISettings();
+  const isManualMode = provider === "manual_ai";
+  const [jobMode, setJobMode] = useState<JobMode | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(STORAGE_JOB_MODE_KEY);
+      if (saved === "manual" || saved === "ai") return saved;
+    }
+    return null;
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [currentView, setCurrentView] = useState<"wizard" | "history">("wizard");
   const [resetKey, setResetKey] = useState(0);
   const [currentStep, setCurrentStep] = useState<WizardStep>(() => {
@@ -30,7 +72,8 @@ function MainWizard() {
       const saved = localStorage.getItem(STORAGE_STEP_KEY);
       if (saved) {
         const num = parseInt(saved, 10);
-        if (num >= 1 && num <= 4) return num as WizardStep;
+        const hasActiveJob = Boolean(localStorage.getItem("ac_active_job_id"));
+        if (num >= 1 && num <= 4 && hasActiveJob && (isManualMode || num !== 4)) return num as WizardStep;
       }
     }
     return 1;
@@ -54,7 +97,25 @@ function MainWizard() {
     resetJob,
     stopPolling,
     startPolling,
+    fetchJobNow,
   } = useJobPolling();
+  const wizardIsManual = jobId ? (jobMode ? jobMode === "manual" : isManualMode) : isManualMode;
+
+  useEffect(() => {
+    if (jobId && activeJob) {
+      const mode = getJobMode(activeJob, jobMode ?? (isManualMode ? "manual" : "ai"));
+      setJobMode(mode);
+      localStorage.setItem(STORAGE_JOB_MODE_KEY, mode);
+    }
+  }, [activeJob, jobId, jobMode, isManualMode]);
+
+  useEffect(() => {
+    if (!jobId && currentStep !== 1) {
+      setCurrentStep(1);
+    } else if (jobId && !wizardIsManual && currentStep === 4) {
+      setCurrentStep(3);
+    }
+  }, [jobId, wizardIsManual, currentStep]);
 
   // Save current step to localStorage
   useEffect(() => {
@@ -81,26 +142,35 @@ function MainWizard() {
   // Automatic step synchronization based on background job status
   useEffect(() => {
     if (jobId) {
-      if (status === "AWAITING_MANUAL" && prompt) {
-        if (currentStep !== 2 && currentStep !== 3) setCurrentStep(2);
-      } else if (
-        status === "CROPPING" ||
-        status === "PROCESSING" ||
-        status === "DONE" ||
-        status === "ERROR"
-      ) {
-        if (currentStep !== 4) setCurrentStep(4);
-      } else if (status === "DOWNLOADING" || status === "TRANSCRIBING") {
-        if (currentStep !== 2 && currentStep !== 3) setCurrentStep(2);
+      const activeJobIsManual = jobMode === "manual" || (jobMode === null && isManualMode);
+      if (activeJobIsManual) {
+        if (status === "AWAITING_MANUAL" && prompt) {
+          if (currentStep !== 2 && currentStep !== 3) setCurrentStep(2);
+        } else if (status === "CROPPING" || status === "PROCESSING" || status === "DONE" || status === "ERROR") {
+          if (currentStep !== 4) setCurrentStep(4);
+        } else if (status === "DOWNLOADING" || status === "TRANSCRIBING") {
+          if (currentStep !== 2 && currentStep !== 3) setCurrentStep(2);
+        }
+      } else {
+        if (status === "CROPPING" || status === "PROCESSING" || status === "DONE" || status === "ERROR") {
+          if (currentStep !== 3) setCurrentStep(3);
+        } else if (status === "DOWNLOADING" || status === "TRANSCRIBING") {
+          if (currentStep !== 2) setCurrentStep(2);
+        }
       }
     }
-  }, [status, jobId, prompt, currentStep]);
+  }, [status, jobId, prompt, currentStep, jobMode, isManualMode]);
 
   const handleStep1Submit = async (payload: CreateJobPayload) => {
+    const mode = isManualMode ? "manual" : "ai";
+    setJobMode(mode);
+    if (typeof window !== "undefined") localStorage.setItem(STORAGE_JOB_MODE_KEY, mode);
     try {
       await createAndStartJob(payload);
       setCurrentStep(2);
     } catch (err) {
+      setJobMode(null);
+      if (typeof window !== "undefined") localStorage.removeItem(STORAGE_JOB_MODE_KEY);
       // Error handled in hook / displayed in Step
     }
   };
@@ -118,13 +188,24 @@ function MainWizard() {
     }
   };
 
+  const handleHistoryResume = async (id: string) => {
+    const fetchedJob = await fetchJobNow(id);
+    const mode = getJobMode(fetchedJob, isManualMode ? "manual" : "ai");
+    setJobMode(mode);
+    localStorage.setItem(STORAGE_JOB_MODE_KEY, mode);
+    setCurrentView("wizard");
+    startPolling(id);
+  };
+
   const handleResetToNewJob = () => {
     setCurrentView("wizard");
     resetJob();
+    setJobMode(null);
     setCurrentStep(1);
     setResetKey((prev) => prev + 1);
     if (typeof window !== "undefined") {
       localStorage.removeItem(STORAGE_STEP_KEY);
+      localStorage.removeItem(STORAGE_JOB_MODE_KEY);
       localStorage.removeItem("ac_draft_step_input");
       setTimeout(() => localStorage.removeItem("ac_draft_step_input"), 10);
     }
@@ -133,10 +214,12 @@ function MainWizard() {
   const handleRetryJob = () => {
     setCurrentView("wizard");
     resetJob();
+    setJobMode(null);
     setCurrentStep(1);
     setResetKey((prev) => prev + 1);
     if (typeof window !== "undefined") {
       localStorage.removeItem(STORAGE_STEP_KEY);
+      localStorage.removeItem(STORAGE_JOB_MODE_KEY);
       localStorage.removeItem("ac_draft_step_input");
       setTimeout(() => localStorage.removeItem("ac_draft_step_input"), 10);
     }
@@ -148,12 +231,7 @@ function MainWizard() {
     }
   };
 
-  const STEPS_CONFIG = [
-    { num: 1 as WizardStep, label: "Input", desc: "URL & Style" },
-    { num: 2 as WizardStep, label: "AI Prompt", desc: "Transcribe" },
-    { num: 3 as WizardStep, label: "Highlights", desc: "Paste JSON" },
-    { num: 4 as WizardStep, label: "Export", desc: "Render & Download" },
-  ];
+  const STEPS_CONFIG = getSteps(wizardIsManual);
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 antialiased py-6 sm:py-10 px-4 sm:px-6 lg:px-8 selection:bg-amber-400 selection:text-neutral-950">
@@ -235,23 +313,29 @@ function MainWizard() {
             >
               <LogOut className="w-4 h-4" />
             </button>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="p-2 rounded-xl text-neutral-400 hover:text-neutral-200 bg-neutral-900/60 hover:bg-neutral-800 border border-neutral-800 transition-colors"
+              title="AI Engine Settings"
+              aria-label="Open AI Engine Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
           </div>
         </header>
 
         {currentView === "history" ? (
           <main className="bg-neutral-900/80 border border-neutral-800/90 rounded-3xl p-5 sm:p-8 shadow-2xl backdrop-blur-md relative overflow-hidden">
             <HistoryList
-              onResume={(id) => {
-                setCurrentView("wizard");
-                startPolling(id);
-              }}
+              onResume={handleHistoryResume}
             />
           </main>
         ) : (
           <>
             {/* Wizard Step Navigation Bar */}
             <nav aria-label="Progress" className="bg-neutral-900/70 border border-neutral-800/80 rounded-2xl p-2 sm:p-3 backdrop-blur-md shadow-lg">
-              <ol className="grid grid-cols-4 gap-1.5 sm:gap-2">
+              <ol className={`${wizardIsManual ? "grid-cols-4" : "grid-cols-3"} grid gap-1.5 sm:gap-2`}>
                 {STEPS_CONFIG.map((step) => {
                   const isActive = currentStep === step.num;
                   const isCompleted = currentStep > step.num;
@@ -306,9 +390,10 @@ function MainWizard() {
                 <StepInput
                   key={resetKey}
                   initialUrl={activeJob?.metadata?.source_video}
-                  isSubmitting={isLoading}
-                  onSubmit={handleStep1Submit}
-                />
+                   isSubmitting={isLoading}
+                   onSubmit={handleStep1Submit}
+                   onOpenSettings={() => setSettingsOpen(true)}
+                 />
               )}
 
               {currentStep === 2 && (
@@ -322,7 +407,7 @@ function MainWizard() {
                 />
               )}
 
-              {currentStep === 3 && (
+              {currentStep === 3 && wizardIsManual && (
                 <StepPaste
                   jobId={jobId || "new_job"}
                   isSubmitting={isLoading}
@@ -331,7 +416,7 @@ function MainWizard() {
                 />
               )}
 
-              {currentStep === 4 && (
+              {((currentStep === 4 && wizardIsManual) || (currentStep === 3 && !wizardIsManual)) && (
                 <StepResult
                   jobId={jobId || "job"}
                   status={status}
@@ -361,6 +446,7 @@ function MainWizard() {
             <span>Zero Local GPU Required</span>
           </div>
         </footer>
+        <AISettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </div>
     </div>
   );
@@ -368,8 +454,10 @@ function MainWizard() {
 
 export default function App() {
   return (
-    <AuthGate>
-      <MainWizard />
-    </AuthGate>
+    <AISettingsProvider>
+      <AuthGate>
+        <MainWizard />
+      </AuthGate>
+    </AISettingsProvider>
   );
 }

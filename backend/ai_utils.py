@@ -2,6 +2,9 @@ import json
 import os
 import random
 import time
+import ipaddress
+import socket
+from urllib.parse import urlsplit, urlunsplit
 from openai import OpenAI
 from google import genai
 from google.genai import types
@@ -26,6 +29,26 @@ _TRANSIENT_MARKERS = (
     "socket.gaierror", "network is unreachable", "connection aborted",
     "connection reset"
 )
+
+
+def validate_custom_base_url(value: str, allow_private: bool = False) -> str:
+    parts = urlsplit((value or "").strip())
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError("Custom provider Base URL must be a public HTTP(S) URL without credentials or query parameters.")
+    hostname = parts.hostname.rstrip(".").lower()
+    if not allow_private and hostname in {"localhost", "metadata.google.internal", "metadata", "instance-data.ec2.internal"}:
+        raise ValueError("Custom provider Base URL must not target private or metadata hosts.")
+    try:
+        addresses = {ipaddress.ip_address(hostname)}
+    except ValueError:
+        try:
+            addresses = {ipaddress.ip_address(info[4][0]) for info in socket.getaddrinfo(hostname, None)}
+        except OSError:
+            addresses = set()
+    if not allow_private and any(address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_unspecified for address in addresses):
+        raise ValueError("Custom provider Base URL must target a public host.")
+    path = parts.path.rstrip("/")
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
 def _is_transient(err) -> bool:
@@ -682,7 +705,7 @@ def process_with_openai_compatible(file_path: str, api_key: str, provider: str,
     if provider == "custom":
         if not custom_base_url or not custom_model_name:
             raise ValueError("Custom provider requires a Base URL and Model Name.")
-        base_url, model = custom_base_url, custom_model_name
+        base_url, model = validate_custom_base_url(custom_base_url, allow_private=not os.environ.get("AUTO_CLIPPER_CLOUD_MODE")), custom_model_name
     else:
         cfg = OPENAI_COMPAT_PROVIDERS.get(provider)
         if not cfg:
@@ -727,7 +750,7 @@ def process_with_deepseek(file_path: str, api_key: str, karaoke: bool = False, e
     """Back-compat wrapper -> process_with_openai_compatible(..., "deepseek")."""
     return process_with_openai_compatible(file_path, api_key, "deepseek", karaoke=karaoke, extra_prompt=extra_prompt, limit=limit, is_cancelled=is_cancelled, register_proc=register_proc, whisper_model=whisper_model)
 
-def fetch_provider_models(provider: str, api_key: str) -> list:
+def fetch_provider_models(provider: str, api_key: str, custom_base_url: str = "", custom_model_name: str = "") -> list:
     """Query provider API for available models."""
     try:
         if provider == "gemini":
@@ -755,6 +778,26 @@ def fetch_provider_models(provider: str, api_key: str) -> list:
                         "label": f"{display} ({clean_name})" if display and display != clean_name else clean_name
                     })
             return result
+        elif provider == "custom":
+            if not custom_base_url:
+                raise ValueError("Custom provider requires a Base URL.")
+            base_url = validate_custom_base_url(custom_base_url, allow_private=not os.environ.get("AUTO_CLIPPER_CLOUD_MODE"))
+            parts = urlsplit(base_url)
+            path = parts.path
+            if path.endswith("/models"):
+                path = path[:-len("/models")].rstrip("/")
+            base_url = urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+            client = OpenAI(
+                api_key=api_key or "-",
+                base_url=base_url,
+                timeout=15.0,
+                default_headers={**BROWSER_HEADERS, "Authorization": f"Bearer {api_key or '-'}"},
+            )
+            models_resp = client.models.list()
+            data = getattr(models_resp, "data", None)
+            if not isinstance(data, (list, tuple)):
+                raise ValueError("Custom provider returned malformed /models response: missing data.")
+            return [{"id": getattr(m, "id", None) or str(m), "label": getattr(m, "id", None) or str(m)} for m in data]
         elif provider in OPENAI_COMPAT_PROVIDERS or provider == "openai":
             cfg = OPENAI_COMPAT_PROVIDERS.get(provider)
             base_url = cfg["base_url"] if cfg else None
@@ -780,6 +823,8 @@ def fetch_provider_models(provider: str, api_key: str) -> list:
                 result.append({"id": m_id, "label": m_id})
             return result
     except Exception as e:
+        if provider == "custom":
+            raise
         log_error("ai_utils.fetch_provider_models", f"Failed to fetch models for {provider}: {e}")
     return []
 
@@ -791,6 +836,7 @@ def ping_provider(provider: str, api_key: str, custom_base_url: str = None, cust
         if not custom_base_url or not custom_model_name:
             raise Exception("Custom provider requires a Base URL and Model Name.")
         try:
+            custom_base_url = validate_custom_base_url(custom_base_url, allow_private=not os.environ.get("AUTO_CLIPPER_CLOUD_MODE"))
             # api_key is optional for local servers; the client needs a non-empty string.
             client = OpenAI(api_key=api_key or "-", base_url=custom_base_url, timeout=10.0, default_headers=BROWSER_HEADERS)
             client.chat.completions.create(
