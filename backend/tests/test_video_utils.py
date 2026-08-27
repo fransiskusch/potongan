@@ -1,4 +1,5 @@
 from backend.video_utils import download_youtube_video
+from backend.video_utils import humanize_download_error, resolve_cookie_file
 from unittest.mock import patch, MagicMock
 
 @patch('backend.video_utils.yt_dlp.YoutubeDL')
@@ -30,6 +31,46 @@ def test_quality_to_format_caps_height():
     # best (and unknown) => no height cap
     assert "height<=" not in quality_to_format("best")
     assert "height<=" not in quality_to_format("weird")
+
+
+def test_humanize_download_error_bot_message():
+    msg = humanize_download_error(Exception("Sign in to confirm you're not a bot"))
+    assert "cookies.txt" in msg.lower()
+    assert "bot" in msg.lower()
+
+
+def test_humanize_download_error_unknown_preserves_text():
+    msg = humanize_download_error(Exception("some obscure detail abc"))
+    assert msg == "some obscure detail abc"
+
+
+def test_resolve_cookie_file_finds_existing(tmp_path):
+    f = tmp_path / "cookies.txt"
+    f.write_text("# Netscape HTTP Cookie File\n")
+    found = resolve_cookie_file([str(tmp_path / "missing.txt"), str(f)])
+    assert found == str(f)
+
+
+def test_resolve_cookie_file_none_when_absent(tmp_path):
+    assert resolve_cookie_file([str(tmp_path / "missing.txt")]) is None
+
+
+@patch('backend.video_utils.yt_dlp.YoutubeDL')
+def test_download_youtube_video_uses_cookie_file(mock_ytdl, tmp_path):
+    cookie = tmp_path / "cookies.txt"
+    cookie.write_text("# Netscape HTTP Cookie File\n")
+    mock_instance = MagicMock()
+    mock_ytdl.return_value.__enter__.return_value = mock_instance
+    out = tmp_path / "video.mp4"
+    out.write_text("dummy")
+    with patch("backend.video_utils.default_cookie_candidates", return_value=[str(cookie)]):
+        download_youtube_video("https://www.youtube.com/watch?v=abc", str(out))
+    args, kwargs = mock_ytdl.call_args
+    opts = kwargs.get("opts") if kwargs else None
+    if opts is None and args:
+        opts = args[0]
+    assert opts["cookiefile"] == str(cookie)
+    assert "cookiesfrombrowser" not in opts
 
 
 @patch('backend.video_utils.yt_dlp.YoutubeDL')

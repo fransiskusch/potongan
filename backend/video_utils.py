@@ -10,6 +10,36 @@ from pathlib import Path
 from backend.logger import log_error
 
 
+def resolve_cookie_file(candidates: list) -> str | None:
+    """Return the first existing cookies file from ``candidates``.
+
+    Searches common project locations for a ``cookies.txt`` so users can drop
+    a YouTube cookies export next to the repo (Colab: ``/content/potongan``,
+    desktop: project root / ``bin``) without touching code.
+    """
+    for raw in candidates:
+        if not raw:
+            continue
+        p = os.path.abspath(os.path.expanduser(str(raw)))
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def default_cookie_candidates() -> list:
+    """Default search paths for a cookies file, most specific first."""
+    project_root = Path(__file__).resolve().parent.parent
+    candidates = [
+        project_root / "cookies.txt",
+        project_root / "bin" / "cookies.txt",
+        Path.home() / ".config" / "auto-clipper" / "cookies.txt",
+    ]
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).parent
+        candidates.extend([exe_dir / "cookies.txt", exe_dir / "bin" / "cookies.txt"])
+    return [str(c) for c in candidates]
+
+
 def get_ffmpeg_path() -> str | None:
     """Finds the absolute path to the ffmpeg executable."""
     found = shutil.which("ffmpeg")
@@ -67,6 +97,45 @@ class _SilentLogger:
 class DownloadCancelledError(Exception):
     pass
 
+
+def humanize_download_error(exc: Exception) -> str:
+    """Translate common yt-dlp/network errors into user-friendly messages.
+
+    Raw yt-dlp errors (e.g. ``Sign in to confirm you're not a bot``) are
+    technical and confusing for end users. This maps the frequent cases to
+    clear Indonesian/English guidance while preserving unknown details.
+    """
+    text = str(exc) or exc.__class__.__name__
+    lower = text.lower()
+
+    if "sign in to confirm" in lower or "not a bot" in lower or "bot" in lower and "confirm" in lower:
+        return (
+            "YouTube memblokir akses dari server ini (\"Sign in to confirm you're not a bot\"). "
+            "Solusi: (1) taruh file cookies.txt dari browser ke folder project, atau "
+            "(2) gunakan upload file / Google Drive picker sebagai ganti link YouTube."
+        )
+    if "video unavailable" in lower or "private video" in lower or "removed" in lower:
+        return "Video tidak tersedia (private, dihapus, atau dibatasi wilayah). Cek URL-nya."
+    if "copyright" in lower or "strike" in lower:
+        return "Video tidak bisa diunduh karena masalah hak cipta."
+    if "age" in lower or "18+" in lower or "age-restricted" in lower:
+        return "Video dibatasi umur (18+) dan tidak bisa diunduh tanpa login."
+    if "members-only" in lower or "members only" in lower:
+        return "Video khusus member dan tidak bisa diunduh."
+    if "playlist" in lower and "single video" in lower:
+        return "Link tampaknya playlist — kirim URL video tunggal."
+    if "timed out" in lower or "timeout" in lower or "connection" in lower and "error" in lower:
+        return "Koneksi ke server video gagal/timeout. Coba lagi beberapa saat."
+    if "unsupported url" in lower or "not a valid url" in lower:
+        return "URL tidak didukung. Gunakan link YouTube/TikTok/Instagram/X yang valid."
+    if "sign in" in lower or "authentication" in lower or "login" in lower:
+        return "Platform meminta login. Tambahkan cookies.txt agar unduhan diizinkan."
+    if "403" in lower or "forbidden" in lower:
+        return "Akses ditolak (403). Server/platform memblokir unduhan — coba cookies.txt atau sumber lain."
+    if "429" in lower or "too many requests" in lower:
+        return "Terlalu banyak permintaan (429). Tunggu beberapa menit lalu coba lagi."
+    return text
+
 def quality_to_format(quality: str) -> str:
     """yt-dlp format selector for a requested quality label.
 
@@ -86,7 +155,10 @@ def probe_formats(url: str) -> list:
         'quiet': True, 'no_warnings': True, 'skip_download': True,
         'logger': _SilentLogger(),
     }
-    
+
+    cookie_file = resolve_cookie_file(default_cookie_candidates())
+    if cookie_file:
+        base_ydl_opts['cookiefile'] = cookie_file
 
     browsers_to_try = ['chrome', 'edge', 'firefox', 'brave', 'opera', 'vivaldi', None]
     info = None
@@ -94,7 +166,7 @@ def probe_formats(url: str) -> list:
     
     for browser in browsers_to_try:
         ydl_opts = dict(base_ydl_opts)
-        if browser:
+        if browser and not cookie_file:
             ydl_opts['cookiesfrombrowser'] = (browser,)
             
         sink = io.StringIO()
@@ -144,13 +216,17 @@ def download_youtube_video(url: str, output_path: str, quality: str = "best", is
     # the whole call.
     max_retries = 3
     browsers_to_try = ['chrome', 'edge', 'firefox', 'brave', 'opera', 'vivaldi', None]
-    
+
+    cookie_file = resolve_cookie_file(default_cookie_candidates())
+    if cookie_file:
+        base_ydl_opts['cookiefile'] = cookie_file
+
     success = False
     last_error = None
     
     for browser in browsers_to_try:
         ydl_opts = dict(base_ydl_opts)
-        if browser:
+        if browser and not cookie_file:
             ydl_opts['cookiesfrombrowser'] = (browser,)
             
         for attempt in range(max_retries):

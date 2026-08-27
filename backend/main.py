@@ -86,13 +86,30 @@ init_db()
 
 app = FastAPI(title="Auto Clipper API")
 
+
+def error_response(status_code: int, message: str, code: str = None) -> JSONResponse:
+    """Return a consistent error payload: {"status":"error","code":...,"message":...}."""
+    payload = {"status": "error", "message": message}
+    if code:
+        payload["code"] = code
+    return JSONResponse(status_code=status_code, content=payload)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     log_error(f"FastAPI Unhandled [{request.method} {request.url.path}]", exc)
-    return JSONResponse(
-        status_code=500,
-        content={"status": "error", "message": f"Internal Server Error: {str(exc)}"}
-    )
+    return error_response(500, "Terjadi kesalahan internal server. Coba lagi nanti.", code="internal_error")
+
+
+from fastapi import HTTPException
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail
+    message = detail.get("message") if isinstance(detail, dict) else str(detail)
+    code = detail.get("code") if isinstance(detail, dict) else None
+    return error_response(exc.status_code, message, code=code)
 
 _DEFAULT_CORS_ORIGINS = [
     "https://clip.fransiskus.my.id",
@@ -164,7 +181,8 @@ def api_probe(url: str):
         from backend.video_utils import probe_formats
         return {"status": "success", "heights": probe_formats(url.strip())}
     except Exception as e:
-        return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
+        from backend.video_utils import humanize_download_error
+        return error_response(400, humanize_download_error(e), code="probe_failed")
 
 
 @app.get("/health")

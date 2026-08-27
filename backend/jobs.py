@@ -408,7 +408,8 @@ def _run_job(job_id: str):
             _finalize_job(job_id, "CANCELLED", locals().get('metadata', {}))
             return
         log_error(f"JOB {job_id}", e)
-        job["error"] = str(e)
+        from backend.video_utils import humanize_download_error
+        job["error"] = humanize_download_error(e)
         _finalize_job(job_id, "ERROR", locals().get('metadata', {}))
 
 def _render_video_clips(job: dict, job_id: str, metadata: dict, output_path: str, subtitle_path: str, is_cancelled: callable, limit: int = 0):

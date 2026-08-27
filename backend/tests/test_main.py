@@ -356,3 +356,30 @@ def test_post_rerender_clip_endpoint(monkeypatch):
     assert res.status_code == 200
     assert res.json()["status"] == "success"
     assert res.json()["job_id"] == "new-job-123"
+
+
+def test_http_exception_returns_consistent_error_shape(monkeypatch):
+    """HTTPException (mis. judul duplikat) harus berbentuk {status, message} konsisten."""
+    from fastapi import HTTPException
+    from backend.main import app as main_app
+    from fastapi.testclient import TestClient
+
+    @main_app.get("/_test_http_exc")
+    def _raise_http():
+        raise HTTPException(status_code=409, detail="Ada proses lain yang sedang berjalan. Harap tunggu hingga selesai.")
+
+    c = TestClient(main_app)
+    r = c.get("/_test_http_exc")
+    assert r.status_code == 409
+    body = r.json()
+    assert body["status"] == "error"
+    assert "message" in body
+    assert "Ada proses lain" in body["message"]
+
+
+def test_error_response_shape():
+    from backend.main import error_response
+    import json
+    resp = error_response(400, "Pesan error", code="bad_input")
+    assert resp.status_code == 400
+    assert json.loads(resp.body) == {"status": "error", "code": "bad_input", "message": "Pesan error"}
