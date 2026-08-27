@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, Wand2, RefreshCcw, Search, RotateCcw, Copy, Check, ChevronRight } from "lucide-react";
-import { apiGetClipWords, apiCreateClipRerenderJob } from "../api";
+import { apiGetClipWords, apiCreateClipRerenderJob, getErrorMessage } from "../api";
 import { OutputStyleSelector, type OutputStyle } from "./OutputStyleSelector";
 import { SubtitlePresetBar } from "./SubtitlePresetBar";
 import { FontSelector } from "./FontSelector";
@@ -132,7 +132,7 @@ export const ClipEditModal: React.FC<ClipEditModalProps> = ({
         onRerenderStart(res.job_id);
       }
     } catch (err: any) {
-      alert("Failed to rerender: " + err.message);
+      alert(getErrorMessage(err, "Gagal merender ulang klip."));
     } finally {
       setSaving(false);
     }

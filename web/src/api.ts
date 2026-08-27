@@ -53,6 +53,57 @@ export class ApiError extends Error {
   }
 }
 
+const STATUS_FALLBACKS: Record<number, string> = {
+  400: "Permintaan tidak valid. Periksa kembali input Anda.",
+  401: "Sesi berakhir atau token tidak valid. Silakan masuk kembali.",
+  403: "Akses ditolak.",
+  404: "Data tidak ditemukan.",
+  409: "Konflik — ada proses lain yang sedang berjalan.",
+  422: "Data yang dikirim tidak lengkap atau salah format.",
+  429: "Terlalu banyak permintaan. Tunggu sebentar lalu coba lagi.",
+};
+
+export function getErrorMessage(err: any, fallback?: string): string {
+  if (!err) return fallback || "Terjadi kesalahan yang tidak diketahui.";
+
+  // Prefer server-provided message (backend returns {status, message, code}).
+  const dataMessage =
+    err?.data && typeof err.data === "object"
+      ? err.data.message || err.data.detail || err.data.error
+      : undefined;
+
+  if (typeof dataMessage === "string" && dataMessage.trim()) {
+    return dataMessage;
+  }
+
+  if (typeof err?.message === "string" && err.message.trim()) {
+    // Avoid leaking raw "Request failed with status X" when we have a friendlier mapping.
+    if (err.status && STATUS_FALLBACKS[err.status]) {
+      return STATUS_FALLBACKS[err.status];
+    }
+    return err.message;
+  }
+
+  if (err?.status && STATUS_FALLBACKS[err.status]) {
+    return STATUS_FALLBACKS[err.status];
+  }
+
+  if (err instanceof TypeError || err?.name === "TypeError") {
+    return "Tidak dapat terhubung ke server. Pastikan backend Colab sedang berjalan.";
+  }
+
+  return fallback || "Terjadi kesalahan yang tidak diketahui.";
+}
+
+export function getNetworkErrorMessage(err: any): string {
+  if (!err) return "Tidak dapat terhubung ke server.";
+  if (err?.status) return getErrorMessage(err);
+  if (err instanceof TypeError || err?.name === "TypeError") {
+    return "Tidak dapat terhubung ke server. Pastikan backend Colab sedang berjalan.";
+  }
+  return getErrorMessage(err, "Terjadi kesalahan jaringan.");
+}
+
 export async function apiFetch<T = any>(
   endpoint: string,
   options: RequestInit = {}
@@ -79,7 +130,7 @@ export async function apiFetch<T = any>(
 
   if (response.status === 401) {
     window.dispatchEvent(new CustomEvent("ac_unauthorized"));
-    throw new ApiError("Unauthorized: Token invalid or expired", 401);
+    throw new ApiError("Sesi berakhir atau token tidak valid. Silakan masuk kembali.", 401);
   }
 
   let data: any = null;
@@ -95,8 +146,13 @@ export async function apiFetch<T = any>(
   }
 
   if (!response.ok) {
+    const serverMessage =
+      data && typeof data === "object"
+        ? data.message || data.detail || data.error
+        : undefined;
     const errorMsg =
-      (data && typeof data === "object" && (data.message || data.detail || data.error)) ||
+      (typeof serverMessage === "string" && serverMessage.trim()) ||
+      STATUS_FALLBACKS[response.status] ||
       `Request failed with status ${response.status}`;
     throw new ApiError(errorMsg, response.status, data);
   }

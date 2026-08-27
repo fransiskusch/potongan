@@ -189,7 +189,7 @@ export const StepResult: React.FC<StepResultProps> = ({
               {isCancelled ? "Processing Cancelled" : "Failed to Complete Rendering"}
             </h3>
             <p className="text-xs text-red-300/90 max-w-md mx-auto leading-relaxed">
-              {error || progress || "An unexpected error occurred during rendering."}
+              {error || progress || "Terjadi kesalahan yang tidak diketahui saat proses rendering."}
             </p>
           </div>
 

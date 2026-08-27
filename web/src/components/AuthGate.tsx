@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { KeyRound, Lock, Eye, EyeOff, Sparkles, ArrowRight, ShieldCheck, AlertCircle } from "lucide-react";
-import { getAuthToken, setAuthToken, clearAuthToken, apiFetch } from "../api";
+import { getAuthToken, setAuthToken, clearAuthToken, apiFetch, getErrorMessage } from "../api";
 
 export interface AuthGateProps {
   children: React.ReactNode;
@@ -24,7 +24,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
         })
         .catch((err: any) => {
           if (err.status !== 401) {
-            setErrorMsg("Cannot connect to backend. Server might be offline.");
+            setErrorMsg("Tidak dapat terhubung ke backend. Server mungkin sedang offline.");
           }
           setIsAuthenticated(false);
         })
@@ -39,7 +39,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     const handleUnauthorized = () => {
       clearAuthToken();
       setIsAuthenticated(false);
-      setErrorMsg("Session expired or token invalid. Please re-enter your access token.");
+      setErrorMsg("Sesi berakhir atau token tidak valid. Silakan masukkan ulang token akses Anda.");
     };
 
     const handleAuthChanged = (e: Event) => {
@@ -65,7 +65,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
     e.preventDefault();
     const cleanToken = token.trim();
     if (!cleanToken) {
-      setErrorMsg("Please enter your access token");
+      setErrorMsg("Masukkan token akses Anda.");
       return;
     }
 
@@ -80,7 +80,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ children }) => {
       setIsAuthenticated(true);
       setToken("");
     } catch (err: any) {
-      setErrorMsg(err.status === 401 ? "Invalid Access Token." : (err?.message || "Failed to authenticate with backend"));
+      setErrorMsg(err.status === 401 ? "Token akses tidak valid. Periksa kembali token Anda." : getErrorMessage(err, "Gagal terhubung ke backend. Server mungkin sedang offline."));
       clearAuthToken();
     } finally {
       setIsVerifying(false);

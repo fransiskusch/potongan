@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { JobStatus, JobResponse, Clip, CreateJobPayload } from "../types/job";
-import { apiGetJob, apiCreateJob, apiResumeManualJob, apiCancelJob } from "../api";
+import { apiGetJob, apiCreateJob, apiResumeManualJob, apiCancelJob, getErrorMessage } from "../api";
 
 export const STORAGE_ACTIVE_JOB_KEY = "ac_active_job_id";
 
@@ -109,6 +109,8 @@ export function useJobPolling(initialJobId?: string | null): UseJobPollingReturn
           setStatus("ERROR");
           setError("Pekerjaan (Job) tidak ditemukan. Mungkin sudah dihapus atau server di-restart.");
           stopPolling();
+        } else {
+          setError(getErrorMessage(err, "Gagal mengambil status pekerjaan."));
         }
         return null;
       }
@@ -167,7 +169,7 @@ export function useJobPolling(initialJobId?: string | null): UseJobPollingReturn
           throw new Error(res.message || "Failed to create job");
         }
       } catch (err: any) {
-        const msg = err?.message || "Failed to submit job to server";
+        const msg = getErrorMessage(err, "Gagal mengirim pekerjaan ke server.");
         setError(msg);
         setStatus("ERROR");
         throw err;
@@ -200,7 +202,7 @@ export function useJobPolling(initialJobId?: string | null): UseJobPollingReturn
           throw new Error(res.message || "Failed to resume manual job");
         }
       } catch (err: any) {
-        const msg = err?.message || "Failed to submit AI highlights";
+        const msg = getErrorMessage(err, "Gagal mengirim highlight AI.");
         setError(msg);
         throw err;
       } finally {

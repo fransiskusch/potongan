@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { apiGetHistory, apiDeleteHistory, apiCreateRerenderJob, apiCreateRerunAiJob, API_URL } from "../api";
+import { apiGetHistory, apiDeleteHistory, apiCreateRerenderJob, apiCreateRerunAiJob, API_URL, getErrorMessage } from "../api";
 import type { JobResponse } from "../types/job";
 import { Trash2, Play, CheckCircle2, Clock, AlertCircle, RotateCcw, Sparkles, Film, Download, Share2, ExternalLink, Pencil } from "lucide-react";
 import { OutputStyleSelector, type OutputStyle } from "./OutputStyleSelector";
@@ -40,7 +40,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({ onResume }) => {
       setError(null);
     } catch (err: any) {
       console.error("Failed to fetch history:", err);
-      setError("Failed to load history.");
+      setError(getErrorMessage(err, "Gagal memuat riwayat."));
     } finally {
       setLoading(false);
     }
@@ -55,10 +55,10 @@ export const HistoryList: React.FC<HistoryListProps> = ({ onResume }) => {
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
     try {
       await apiDeleteHistory(jobId);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to delete job:", err);
       setJobs(previousJobs);
-      setError("Failed to delete job.");
+      setError(getErrorMessage(err, "Gagal menghapus riwayat."));
     }
   };
 
@@ -93,7 +93,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({ onResume }) => {
       }
     } catch (err: any) {
       console.error("Failed to rerender:", err);
-      alert(err.message || "Failed to start rerender job.");
+      alert(getErrorMessage(err, "Gagal memulai render ulang."));
     } finally {
       setIsSubmittingPanel(false);
       setActiveRerenderId(null);
@@ -110,7 +110,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({ onResume }) => {
       }
     } catch (err: any) {
       console.error("Failed to rerun AI:", err);
-      alert(err.message || "Failed to start AI correction job.");
+      alert(getErrorMessage(err, "Gagal memulai koreksi AI."));
     } finally {
       setIsSubmittingPanel(false);
       setActiveAiId(null);

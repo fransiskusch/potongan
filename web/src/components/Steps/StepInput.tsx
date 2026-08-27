@@ -24,7 +24,7 @@ import { FontSelector } from "../FontSelector";
 import { SUBTITLE_PRESETS, DEFAULT_SUBTITLE_CONFIG, type SubtitlePresetKey, type SubtitleConfig } from "../../types/subtitle";
 import { DEFAULT_CANVAS_CONFIG, type CanvasConfig } from "../../types/canvas";
 import type { CreateJobPayload } from "../../types/job";
-import { apiBrowseGDrive, apiSearchGDrive, type GDriveItem } from "../../api";
+import { apiBrowseGDrive, apiSearchGDrive, getErrorMessage, type GDriveItem } from "../../api";
 import { useAISettings } from "../../lib/aiSettings";
 import { getProviderConfig } from "../../lib/providers";
 
@@ -64,7 +64,7 @@ const GDriveBrowserModal: React.FC<{
       setCurrentPath(res.current_dir);
       setParentDir(res.parent_dir);
     } catch (err: any) {
-      setError(err.message || "Failed to load directory");
+      setError(getErrorMessage(err, "Gagal memuat direktori."));
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ const GDriveBrowserModal: React.FC<{
       const res = await apiSearchGDrive(q);
       setSearchResults(res.results || []);
     } catch (err: any) {
-      setError(err.message || "Search failed");
+      setError(getErrorMessage(err, "Pencarian gagal."));
       setSearchResults([]);
     } finally {
       setSearching(false);

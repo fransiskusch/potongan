@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { X, KeyRound, Cpu, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
 import { PROVIDERS, getProviderConfig } from "../lib/providers";
 import { useAISettings } from "../lib/aiSettings";
-import { apiTestAi, apiFetchModels, type ProviderModel } from "../api";
+import { apiTestAi, apiFetchModels, getErrorMessage, type ProviderModel } from "../api";
 
 export const AISettingsModal: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
   const { provider, setProvider, model, setModel, apiKeys, setApiKey, customBaseUrl, setCustomBaseUrl, customModelName, setCustomModelName } = useAISettings();
@@ -60,7 +60,7 @@ export const AISettingsModal: React.FC<{ open: boolean; onClose: () => void }> =
       const result = await apiTestAi({ provider, api_key: keyValue, custom_base_url: customBaseUrl, custom_model_name: customModelName, model });
       setFeedback({ ok: true, msg: result.message || "API Key is valid!" });
     } catch (error) {
-      setFeedback({ ok: false, msg: error instanceof Error ? error.message : "Test failed" });
+      setFeedback({ ok: false, msg: getErrorMessage(error, "Tes koneksi gagal.") });
     } finally {
       setLoading(false);
     }
@@ -78,7 +78,7 @@ export const AISettingsModal: React.FC<{ open: boolean; onClose: () => void }> =
       }
       setFeedback({ ok: true, msg: `Loaded ${fetchedModels.length} models` });
     } catch (error) {
-      setFeedback({ ok: false, msg: error instanceof Error ? error.message : "Failed to fetch models" });
+      setFeedback({ ok: false, msg: getErrorMessage(error, "Gagal memuat daftar model.") });
     } finally {
       setLoading(false);
     }
